@@ -1,3 +1,22 @@
 <resources>
     <string name="app_name">hermivision</string>
+    <string name="camera_permission_title">Camera access is required</string>
+    <string name="camera_permission_body">Hermivision needs the camera to analyze live frames and render the tennis ball overlay.</string>
+    <string name="grant_camera_permission">Grant camera permission</string>
+    <string name="open_camera_settings">Open app settings</string>
+    <string name="camera_initializing">Starting camera pipeline…</string>
+    <string name="detector_label">Detector: tennis broadcast hybrid</string>
+    <string name="bounce_log_title">Saved bounce points</string>
+    <string name="clear_bounce_log">Clear log</string>
+    <string name="no_bounce_detected">No bounce saved yet. Aim at a rally where the ball is visible near the court before and after impact.</string>
+    <string name="pick_video">Pick video</string>
+    <string name="analyze_video">Analyze video</string>
+    <string name="video_input_title">Video input mode</string>
+    <string name="video_input_body">Choose a tennis video file and run offline frame analysis to save likely bounce points.</string>
+    <string name="no_video_selected">No video selected yet.</string>
+    <string name="analysis_idle">Waiting for a video.</string>
+    <string name="analysis_ready">Video selected. Ready to analyze.</string>
+    <string name="analysis_running">Analyzing video…</string>
+    <string name="analysis_complete">Analysis complete.</string>
+    <string name="analysis_failed">Analysis failed.</string>
 </resources>
