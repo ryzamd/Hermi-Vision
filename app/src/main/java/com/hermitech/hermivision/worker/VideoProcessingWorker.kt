@@ -148,7 +148,11 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
                 kotlinx.coroutines.coroutineScope {
                     // Decode Video bằng MediaCodec và nhúng khung hình trực tiếp thành C++ Mat
                     launch(kotlinx.coroutines.Dispatchers.Default) {
-                        hardwareDecoder.decodeToMatChannel(videoPath, channel)
+                        try {
+                            hardwareDecoder.decodeToMatChannel(videoPath, channel)
+                        } finally {
+                            hardwareDecoder.clearBuffer()
+                        }
                     }
 
                     // Luồng NPU liên tục kéo Data từ Channel thả vào ONNX
@@ -187,7 +191,11 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
 
                 kotlinx.coroutines.coroutineScope {
                     launch(Dispatchers.Default) {
-                        hardwareDecoder.decodeToMatChannel(videoPath, channel)
+                        try {
+                            hardwareDecoder.decodeToMatChannel(videoPath, channel)
+                        } finally {
+                            hardwareDecoder.clearBuffer()
+                        }
                     }
 
                     val inferDeferred = async(Dispatchers.Default) {
@@ -221,7 +229,11 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             reportProgress(STAGE_BOUNCE_DETECTION, 0)
 
             val bounceDetector = BounceDetectorInferencer(sessionManager)
-            val bounceFrameIds = bounceDetector.detectBounces(ballFrames)
+            val bounceFrameIds = try {
+                bounceDetector.detectBounces(ballFrames)
+            } finally {
+                bounceDetector.releaseSession()
+            }
 
             ResultHolder.bounceFrameIds = bounceFrameIds
             Log.i(TAG, "Bounce detection done: ${bounceFrameIds.size} bounces detected")

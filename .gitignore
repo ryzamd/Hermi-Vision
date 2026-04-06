@@ -1,3 +1,4 @@
+--- .gitignore (原始)
 *.iml
 .gradle
 .idea
@@ -14,3 +15,63 @@
 .externalNativeBuild
 .cxx
 local.properties
+
++++ .gitignore (修改后)
+```
+# Compiled and build artifacts
+*.class
+*.o
+*.obj
+*.so
+*.a
+*.dll
+*.exe
+*.out
+
+# Dependencies
+.gradle/
+build/
+target/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python specific (if applicable)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/modules/
+*.bin
+*.db
+*.db-journal
+.DS_Store
+Thumbs.db
+```

@@ -42,6 +42,8 @@ class BounceDetectorInferencer(private val sessionManager: OnnxSessionManager) {
         private const val NUM_LAGS = 3
     }
 
+    private var cachedSession: ai.onnxruntime.OrtSession? = null
+
     /**
      * Detect bounce frames from ball trajectory.
      *
@@ -229,7 +231,7 @@ class BounceDetectorInferencer(private val sessionManager: OnnxSessionManager) {
         }
         flatBuffer.rewind()
 
-        val session = sessionManager.loadSession(MODEL_NAME)
+        val session = getCachedSession()
         try {
             val inputName = session.inputNames.first()
 
@@ -256,9 +258,18 @@ class BounceDetectorInferencer(private val sessionManager: OnnxSessionManager) {
                     }
                 }
             }
-        } finally {
-            session.close()
         }
+    }
+
+    private fun getCachedSession(): ai.onnxruntime.OrtSession {
+        return cachedSession ?: sessionManager.loadSession(MODEL_NAME).also {
+            cachedSession = it
+        }
+    }
+
+    fun releaseSession() {
+        cachedSession?.close()
+        cachedSession = null
     }
 
     /**
