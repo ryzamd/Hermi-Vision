@@ -43,13 +43,14 @@ class TFLiteSessionManager(private val context: Context) {
             gpuDelegate = delegate
             Log.i(TAG, "Loaded $modelName with GPU delegate")
             interpreter
-        } catch (e: Exception) {
-            Log.w(TAG, "GPU delegate failed for $modelName, falling back to CPU: ${e.message}")
+        } catch (e: Throwable) {
+            Log.w(TAG, "GPU delegate failed for $modelName, falling back to CPU+XNNPACK: ${e.message}")
             val options = Interpreter.Options()
+                .setUseXNNPACK(true)
                 .setNumThreads(NUM_THREADS)
 
             val interpreter = Interpreter(modelBuffer, options)
-            Log.i(TAG, "Loaded $modelName with CPU (${NUM_THREADS} threads)")
+            Log.i(TAG, "Loaded $modelName with CPU+XNNPACK (${NUM_THREADS} threads)")
             interpreter
         }
     }

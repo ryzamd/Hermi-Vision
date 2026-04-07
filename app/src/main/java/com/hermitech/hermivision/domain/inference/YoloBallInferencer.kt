@@ -18,12 +18,12 @@ import java.nio.ByteOrder
  * YOLO26 advantages: NMS-Free, STAL (small-target-aware), 43% faster CPU.
  *
  * Model I/O:
- *   Input:  float32[1, 640, 640, 3]  — NHWC, normalized [0,1]
+ *   Input:  float32[1, 640, 640, 3]  — NHWC, normalized [0,1], RGB
  *   Output: float32[1, 300, 6]       — 300 detections, (x1,y1,x2,y2,conf,class)
  *
  * Pipeline:
- *   1. Preprocess: resize 640×640, normalize [0,1], NHWC layout
- *   2. TFLite inference
+ *   1. Preprocess: BGR→RGB, resize 640×640, normalize [0,1], bulk copy to ByteBuffer
+ *   2. TFLite inference (XNNPACK/GPU accelerated)
  *   3. Post-process: filter by confidence → best detection
  *   4. Return BallFrame (same interface as TrackNet)
  */
@@ -45,17 +45,28 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
         .allocateDirect(1 * INPUT_SIZE * INPUT_SIZE * 3 * 4)
         .order(ByteOrder.nativeOrder())
 
+    // Pre-allocated bulk float array for Mat→ByteBuffer transfer (1 JNI call instead of 409,600)
+    private val bulkFloatArray = FloatArray(INPUT_SIZE * INPUT_SIZE * 3)
+
     // Pre-allocated output array: [1][300][6]
     private val outputArray = Array(1) { Array(NUM_DETECTIONS) { FloatArray(NUM_VALUES) } }
 
+    // Reusable Mats to avoid GC pressure
+    private val resizedMat = Mat()
+    private val rgbMat = Mat()
+    private val floatMat = Mat()
+
     fun loadModel() {
         interpreter = sessionManager.loadInterpreter(MODEL_NAME)
-        Log.i(TAG, "YoloBall model loaded")
+        Log.i(TAG, "YoloBall model loaded (FP16, ${INPUT_SIZE}×${INPUT_SIZE})")
     }
 
     fun releaseModel() {
         interpreter?.close()
         interpreter = null
+        resizedMat.release()
+        rgbMat.release()
+        floatMat.release()
         Log.i(TAG, "YoloBall model released")
     }
 
@@ -97,7 +108,7 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
         origWidth: Int,
         origHeight: Int
     ): BallFrame {
-        // 1. Preprocess: resize + normalize + NHWC
+        // 1. Preprocess: BGR→RGB + resize + normalize + bulk copy
         preprocessFrame(mat)
 
         // 2. Run TFLite inference
@@ -108,30 +119,27 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
     }
 
     /**
-     * Preprocess: resize to 640×640, normalize [0,1], write to NHWC ByteBuffer.
+     * Optimized preprocessing pipeline:
+     *  1. BGR → RGB (OpenCV decodes as BGR, YOLO expects RGB)
+     *  2. Resize to INPUT_SIZE × INPUT_SIZE
+     *  3. Convert to float32 and normalize [0, 1]
+     *  4. Bulk copy Mat → FloatArray → ByteBuffer (1 JNI call)
      */
     private fun preprocessFrame(mat: Mat) {
-        // Resize to INPUT_SIZE × INPUT_SIZE
-        val resized = Mat()
-        Imgproc.resize(mat, resized, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()))
+        // Step 1: BGR → RGB conversion (CRITICAL: OpenCV=BGR, YOLO=RGB)
+        Imgproc.cvtColor(mat, rgbMat, Imgproc.COLOR_BGR2RGB)
 
-        // Convert to float [0, 1]
-        val floatMat = Mat()
-        resized.convertTo(floatMat, CvType.CV_32FC3, 1.0 / 255.0)
-        resized.release()
+        // Step 2: Resize to INPUT_SIZE × INPUT_SIZE
+        Imgproc.resize(rgbMat, resizedMat, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()))
 
-        // Write to ByteBuffer in NHWC order (row by row, pixel by pixel, RGB)
+        // Step 3: Convert to float [0, 1]
+        resizedMat.convertTo(floatMat, CvType.CV_32FC3, 1.0 / 255.0)
+
+        // Step 4: Bulk copy — 1 single JNI call instead of 409,600 pixel-by-pixel calls
+        floatMat.get(0, 0, bulkFloatArray)
+
         inputBuffer.rewind()
-        val pixelBuffer = FloatArray(3)
-        for (y in 0 until INPUT_SIZE) {
-            for (x in 0 until INPUT_SIZE) {
-                floatMat.get(y, x, pixelBuffer) // Returns [R, G, B] for CV_32FC3
-                inputBuffer.putFloat(pixelBuffer[0]) // R
-                inputBuffer.putFloat(pixelBuffer[1]) // G
-                inputBuffer.putFloat(pixelBuffer[2]) // B
-            }
-        }
-        floatMat.release()
+        inputBuffer.asFloatBuffer().put(bulkFloatArray)
         inputBuffer.rewind()
     }
 
@@ -139,7 +147,7 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
      * Parse TFLite output [1, 300, 6] → best ball detection.
      *
      * Output format per detection: [x1, y1, x2, y2, confidence, class_id]
-     * Coordinates are in pixel space relative to INPUT_SIZE (640×640).
+     * Coordinates are normalized [0, 1].
      */
     private fun parseOutput(
         frameId: Int,
@@ -164,7 +172,7 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
             return BallFrame(frameId, isVisible = false, x = null, y = null)
         }
 
-        // Get center from bounding box (x1, y1, x2, y2)
+        // Get center from bounding box (x1, y1, x2, y2) — normalized [0,1]
         val x1 = detections[bestIdx][0]
         val y1 = detections[bestIdx][1]
         val x2 = detections[bestIdx][2]
@@ -173,12 +181,9 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
         val cx = (x1 + x2) / 2f
         val cy = (y1 + y2) / 2f
 
-        // Scale back to original frame size
-        val scaleX = origWidth.toFloat() / INPUT_SIZE
-        val scaleY = origHeight.toFloat() / INPUT_SIZE
-
-        val x = cx * scaleX
-        val y = cy * scaleY
+        // Coordinates are normalized [0,1] — scale to original frame size directly
+        val x = cx * origWidth
+        val y = cy * origHeight
 
         return BallFrame(frameId, isVisible = true, x = x, y = y)
     }
