@@ -1,6 +1,7 @@
 package com.hermitech.hermivision.domain.inference
 
 import ai.onnxruntime.OnnxTensor
+import android.util.Log
 import com.hermitech.hermivision.data.model.BallFrame
 import java.nio.FloatBuffer
 import kotlin.math.abs
@@ -258,6 +259,9 @@ class BounceDetectorInferencer(private val sessionManager: OnnxSessionManager) {
                     }
                 }
             }
+        } catch (e: Exception) {
+            Log.w("BounceDetector", "Batch inference failed: ${e.message}")
+            return FloatArray(numSamples) { 0f }
         }
     }
 

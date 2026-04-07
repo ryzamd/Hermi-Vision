@@ -81,9 +81,9 @@ fun HermivisionApp() {
 
             ResultsScreen(
                 ballFrames = holder.ballFrames,
-                bounceFrameIds = holder.bounceFrameIds,
-                bounceCourtPoints = holder.bounceCourtPoints,
-                trajectoryCourtPoints = holder.trajectoryCourtPoints,
+                totalFrames = holder.totalFrames,
+                visibleFrames = holder.visibleFrames,
+                inferenceTimeMs = holder.inferenceTimeMs,
                 totalDurationMs = holder.durationMs,
                 onBackClick = {
                     VideoProcessingWorker.ResultHolder.clear()
