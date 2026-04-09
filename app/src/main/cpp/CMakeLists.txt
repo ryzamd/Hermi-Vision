@@ -1,0 +1,84 @@
+cmake_minimum_required(VERSION 3.22.1)
+project("hermivision" LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ════════════════════════════════════════════════════════════════════════════
+# OpenCV — from org.opencv:opencv:4.9.0 AAR via Prefab
+# Prefab creates target: OpenCV::opencv_java4
+# ════════════════════════════════════════════════════════════════════════════
+find_package(OpenCV REQUIRED CONFIG)
+
+# ════════════════════════════════════════════════════════════════════════════
+# TFLite C API — Manual setup (AAR doesn't support Prefab)
+#
+# Headers: third_party/tflite/include/  (minimal C API declarations)
+# Library: third_party/tflite/lib/arm64-v8a/libtensorflowlite_jni.so
+#          (extracted from AAR by scripts/setup_native_deps.ps1)
+# ════════════════════════════════════════════════════════════════════════════
+set(TFLITE_DIR "${CMAKE_SOURCE_DIR}/third_party/tflite")
+
+# Verify .so exists
+set(TFLITE_LIB "${TFLITE_DIR}/lib/${ANDROID_ABI}/libtensorflowlite_jni.so")
+if(NOT EXISTS "${TFLITE_LIB}")
+    message(FATAL_ERROR
+        "TFLite native library not found at: ${TFLITE_LIB}\n"
+        "Run: powershell scripts/setup_native_deps.ps1\n"
+        "This extracts the .so from the Gradle-cached TFLite AAR.")
+endif()
+
+# Create IMPORTED library target
+add_library(tflite_jni SHARED IMPORTED)
+set_target_properties(tflite_jni PROPERTIES
+    IMPORTED_LOCATION "${TFLITE_LIB}"
+)
+
+# ════════════════════════════════════════════════════════════════════════════
+# Optional: Delegate support
+# ════════════════════════════════════════════════════════════════════════════
+option(HERMIVISION_USE_NNAPI "Enable NNAPI delegate support" OFF)
+option(HERMIVISION_USE_GPU   "Enable GPU delegate support"   OFF)
+
+# ════════════════════════════════════════════════════════════════════════════
+# HermiVision Native Library
+# ════════════════════════════════════════════════════════════════════════════
+add_library(hermivision_native SHARED
+    native_bridge.cpp
+    engine/delegate_manager.cpp
+    engine/preprocessor.cpp
+    engine/hermivision_pipeline.cpp
+    engine/tracker.cpp
+    models/yolo_ball_detector.cpp
+)
+
+target_include_directories(hermivision_native PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${TFLITE_DIR}/include
+)
+
+if(HERMIVISION_USE_NNAPI)
+    target_compile_definitions(hermivision_native PRIVATE HERMIVISION_USE_NNAPI)
+endif()
+
+if(HERMIVISION_USE_GPU)
+    target_compile_definitions(hermivision_native PRIVATE HERMIVISION_USE_GPU)
+endif()
+
+# ════════════════════════════════════════════════════════════════════════════
+# Linking — use exact Prefab target for OpenCV (carries include dirs)
+# ════════════════════════════════════════════════════════════════════════════
+target_link_libraries(hermivision_native
+    OpenCV::opencv_java4    # Prefab target (includes + .so)
+    tflite_jni              # Manual IMPORTED
+    android
+    log
+    jnigraphics
+)
+
+message(STATUS "HermiVision C++ Pipeline configured:")
+message(STATUS "  OpenCV:  ${OpenCV_VERSION} (Prefab)")
+message(STATUS "  TFLite:  manual (${TFLITE_LIB})")
+message(STATUS "  NNAPI:   ${HERMIVISION_USE_NNAPI}")
+message(STATUS "  GPU:     ${HERMIVISION_USE_GPU}")
+message(STATUS "  ABI:     ${ANDROID_ABI}")
