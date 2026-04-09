@@ -30,7 +30,9 @@ android {
                 cppFlags("-std=c++17", "-O3", "-flto", "-DNDEBUG", "-fvisibility=hidden")
                 arguments(
                     "-DANDROID_STL=c++_shared",
-                    "-DANDROID_ARM_NEON=TRUE"
+                    "-DANDROID_ARM_NEON=TRUE",
+                    "-DHERMIVISION_USE_GPU=ON",
+                    "-DHERMIVISION_USE_NNAPI=ON"
                 )
             }
         }

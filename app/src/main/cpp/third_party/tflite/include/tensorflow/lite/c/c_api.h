@@ -1,10 +1,10 @@
 /**
- * TFLite C API — Minimal declarations for HermiVision C++ pipeline.
+ * TFLite C API — Declarations for HermiVision C++ pipeline.
  *
  * Only the functions ACTUALLY USED by our code are declared here.
  * They match the symbols exported by libtensorflowlite_jni.so (TFLite 2.16.1).
  *
- * Source: tensorflow/lite/c/c_api.h
+ * Types are imported from core/c/c_api_types.h (via c_api_types.h redirect).
  */
 #ifndef TENSORFLOW_LITE_C_C_API_H_
 #define TENSORFLOW_LITE_C_C_API_H_
@@ -17,12 +17,12 @@
 extern "C" {
 #endif
 
-// ── Opaque types ──
+// ── Opaque types (only declare if not already declared by core headers) ──
 typedef struct TfLiteModel TfLiteModel;
 typedef struct TfLiteInterpreter TfLiteInterpreter;
 typedef struct TfLiteInterpreterOptions TfLiteInterpreterOptions;
 typedef struct TfLiteTensor TfLiteTensor;
-typedef struct TfLiteDelegate TfLiteDelegate;
+// Note: TfLiteDelegate is already declared in core/c/c_api_types.h
 
 // ════════════════════════════════════════════════════════════════
 // Model

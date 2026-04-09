@@ -57,6 +57,11 @@ private:
     int letterboxPadX_ = 0;
     int letterboxPadY_ = 0;
 
+    // Optimization: track source dims to avoid redundant padding clears
+    int lastSrcW_ = 0;
+    int lastSrcH_ = 0;
+    bool paddingCleared_ = false;
+
     // ── Pre-processing ──
     void preprocess(const cv::Mat& rgbFrame);
 

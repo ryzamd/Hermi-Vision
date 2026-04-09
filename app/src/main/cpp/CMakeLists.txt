@@ -37,8 +37,22 @@ set_target_properties(tflite_jni PROPERTIES
 # ════════════════════════════════════════════════════════════════════════════
 # Optional: Delegate support
 # ════════════════════════════════════════════════════════════════════════════
-option(HERMIVISION_USE_NNAPI "Enable NNAPI delegate support" OFF)
-option(HERMIVISION_USE_GPU   "Enable GPU delegate support"   OFF)
+option(HERMIVISION_USE_NNAPI "Enable NNAPI delegate support" ON)
+option(HERMIVISION_USE_GPU   "Enable GPU delegate support"   ON)
+
+# GPU delegate library (extracted from tensorflow-lite-gpu AAR)
+if(HERMIVISION_USE_GPU)
+    set(TFLITE_GPU_LIB "${TFLITE_DIR}/lib/${ANDROID_ABI}/libtensorflowlite_gpu_jni.so")
+    if(NOT EXISTS "${TFLITE_GPU_LIB}")
+        message(WARNING "GPU .so not found at: ${TFLITE_GPU_LIB} — GPU delegate disabled")
+        set(HERMIVISION_USE_GPU OFF)
+    else()
+        add_library(tflite_gpu_jni SHARED IMPORTED)
+        set_target_properties(tflite_gpu_jni PROPERTIES
+            IMPORTED_LOCATION "${TFLITE_GPU_LIB}"
+        )
+    endif()
+endif()
 
 # ════════════════════════════════════════════════════════════════════════════
 # HermiVision Native Library
@@ -75,6 +89,11 @@ target_link_libraries(hermivision_native
     log
     jnigraphics
 )
+
+# Link GPU delegate .so when enabled
+if(HERMIVISION_USE_GPU)
+    target_link_libraries(hermivision_native tflite_gpu_jni)
+endif()
 
 message(STATUS "HermiVision C++ Pipeline configured:")
 message(STATUS "  OpenCV:  ${OpenCV_VERSION} (Prefab)")

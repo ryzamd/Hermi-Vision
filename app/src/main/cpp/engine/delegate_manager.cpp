@@ -30,6 +30,7 @@ DelegateManager::~DelegateManager() {
 
 TfLiteInterpreter* DelegateManager::createInterpreter(
     TfLiteModel* model,
+    const std::string& cacheDir,
     DelegateType preferred,
     int numThreads
 ) {
@@ -53,7 +54,7 @@ TfLiteInterpreter* DelegateManager::createInterpreter(
     }
 
     for (auto type : chain) {
-        TfLiteInterpreter* interp = tryCreate(model, type, numThreads);
+        TfLiteInterpreter* interp = tryCreate(model, cacheDir, type, numThreads);
         if (interp) {
             interpreter_ = interp;
             LOGI("✓ Interpreter created with %s", activeDelegateName_.c_str());
@@ -68,6 +69,7 @@ TfLiteInterpreter* DelegateManager::createInterpreter(
 
 TfLiteInterpreter* DelegateManager::tryCreate(
     TfLiteModel* model,
+    const std::string& cacheDir,
     DelegateType type,
     int numThreads
 ) {
@@ -103,6 +105,16 @@ TfLiteInterpreter* DelegateManager::tryCreate(
             TfLiteGpuDelegateOptionsV2 gpu_opts = TfLiteGpuDelegateOptionsV2Default();
             gpu_opts.inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_SUSTAINED_SPEED;
             gpu_opts.inference_priority1 = TFLITE_GPU_INFERENCE_PRIORITY_MIN_LATENCY;
+            
+            if (!cacheDir.empty()) {
+                gpu_opts.experimental_flags |= TFLITE_GPU_EXPERIMENTAL_FLAGS_ENABLE_SERIALIZATION;
+                gpu_opts.serialization_dir = cacheDir.c_str();
+                gpu_opts.model_token = "HermiVisionYoloBall"; // Must be unique per model graph
+                LOGI("GPU Shader Serialization ENABLED — Cache dir: %s", cacheDir.c_str());
+            } else {
+                LOGW("No cache dir provided, GPU compilation will be extremely slow (~18s) every time!");
+            }
+
             delegate = TfLiteGpuDelegateV2Create(&gpu_opts);
             if (delegate) {
                 TfLiteInterpreterOptionsAddDelegate(options, delegate);

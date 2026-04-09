@@ -144,7 +144,7 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
 
             // Producer–Consumer: decode → channel → C++ inference
             val ballFrames = run {
-                val channel = kotlinx.coroutines.channels.Channel<org.opencv.core.Mat>(capacity = 4)
+                val channel = kotlinx.coroutines.channels.Channel<org.opencv.core.Mat>(capacity = 8)
                 val hardwareDecoder = com.hermitech.hermivision.domain.decoder.HardwareVideoDecoder()
 
                 kotlinx.coroutines.coroutineScope {
@@ -211,6 +211,8 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
 
             Log.i(TAG, "Ball tracking done: $visibleFrames/${ballFrames.size} visible, ${inferenceTimeMs}ms")
             Log.i(TAG, "  Delegate used: ${pipeline.getActiveDelegate()}")
+            val fps = if (inferenceTimeMs > 0) ballFrames.size * 1000.0 / inferenceTimeMs else 0.0
+            Log.i(TAG, "  Effective FPS: ${"%.1f".format(fps)} (${ballFrames.size} frames / ${inferenceTimeMs}ms)")
             reportProgress(STAGE_BALL_TRACKING, 100)
 
             // --- Done ---

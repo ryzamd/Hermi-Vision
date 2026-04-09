@@ -32,6 +32,7 @@ public:
      */
     TfLiteInterpreter* createInterpreter(
         TfLiteModel* model,
+        const std::string& cacheDir,
         DelegateType preferred,
         int numThreads
     );
@@ -52,7 +53,7 @@ private:
     std::string activeDelegateName_ = "none";
 
     /// Try creating interpreter with a specific delegate. Returns nullptr on failure.
-    TfLiteInterpreter* tryCreate(TfLiteModel* model, DelegateType type, int numThreads);
+    TfLiteInterpreter* tryCreate(TfLiteModel* model, const std::string& cacheDir, DelegateType type, int numThreads);
 
     /// Clean up a delegate pointer based on its type
     void deleteDelegate(TfLiteDelegate* delegate, DelegateType type);
