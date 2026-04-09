@@ -157,7 +157,7 @@ private fun CompleteContent(uiState: ProcessingUiState, onViewResultsClick: () -
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SummaryItem("Frames Analyzed", "${uiState.totalFrames}")
-            SummaryItem("Bounces Detected", "${uiState.bounceCount}")
+            SummaryItem("Ball Detected", "${uiState.visibleFrames} frames")
             SummaryItem("Processing Time", "%.1fs".format(uiState.durationMs / 1000.0))
         }
     }

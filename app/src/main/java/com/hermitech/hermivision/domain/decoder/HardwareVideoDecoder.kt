@@ -142,4 +142,8 @@ class HardwareVideoDecoder {
 
         return rgbMat
     }
+
+    fun clearBuffer() {
+        nv21Buffer = null
+    }
 }

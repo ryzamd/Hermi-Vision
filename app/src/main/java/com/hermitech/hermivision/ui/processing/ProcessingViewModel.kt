@@ -22,7 +22,7 @@ data class ProcessingUiState(
     val progressPercent: Int = 0,
     val currentFrame: Int = -1,
     val totalFrames: Int = 0,
-    val bounceCount: Int = 0,
+    val visibleFrames: Int = 0,
     val durationMs: Long = 0L,
     val error: String? = null
 )
@@ -120,7 +120,7 @@ class ProcessingViewModel(application: Application) : AndroidViewModel(applicati
                             stage = "Complete",
                             progressPercent = 100,
                             totalFrames = output.getInt(VideoProcessingWorker.KEY_TOTAL_FRAMES, 0),
-                            bounceCount = output.getInt(VideoProcessingWorker.KEY_BOUNCE_COUNT, 0),
+                            visibleFrames = output.getInt(VideoProcessingWorker.KEY_VISIBLE_FRAMES, 0),
                             durationMs = output.getLong(VideoProcessingWorker.KEY_DURATION_MS, 0L)
                         )
                     }
