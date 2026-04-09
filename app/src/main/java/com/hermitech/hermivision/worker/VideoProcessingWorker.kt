@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.hermitech.hermivision.data.AppDatabase
 import com.hermitech.hermivision.domain.inference.TFLiteSessionManager
 import com.hermitech.hermivision.domain.inference.YoloBallInferencer
 import com.hermitech.hermivision.data.model.BallFrame
@@ -17,9 +18,10 @@ import org.opencv.android.OpenCVLoader
  * Background worker for ball detection pipeline.
  *
  * Simplified pipeline (v2 — YOLO26):
- *  1. Decode video → frame channel
- *  2. YOLO26 TFLite → ball positions (List<BallFrame>)
- *  3. Store results → UI shows numerical stats
+ *  1. Load AIConfig from Room DB (benchmark already done on first launch)
+ *  2. Decode video → frame channel
+ *  3. YOLO26 TFLite → ball positions (List<BallFrame>)
+ *  4. Store results → UI shows numerical stats
  *
  * Court detection and bounce detection are temporarily disabled.
  */
@@ -73,7 +75,14 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
         Log.i(TAG, "OpenCV initialized successfully")
 
         try {
-            // --- Stage 0: Decode video metadata ---
+            // --- Load AIConfig from Room DB (benchmark was done on first launch) ---
+            val db = AppDatabase.getInstance(applicationContext)
+            val configEntity = db.deviceConfigDao().getConfig()
+                ?: return Result.failure(workDataOf("error" to "Device not optimized. Please restart the app."))
+            val config = configEntity.toAIConfig()
+            Log.i(TAG, "AI Config: ${config.deviceSummary}")
+
+            // --- Stage 1: Decode video metadata ---
             reportProgress(STAGE_DECODING, 0)
 
             val videoPath = inputData.getString(KEY_VIDEO_URI)
@@ -108,12 +117,12 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             Log.i(TAG, "Video: $totalFrames frames, ${videoWidth}x${videoHeight}")
             reportProgress(STAGE_DECODING, 100)
 
-            // --- Stage 1: YOLO26 Ball Detection ---
+            // --- Stage 2: YOLO26 Ball Detection ---
             reportProgress(STAGE_BALL_TRACKING, 0)
 
             val tfliteManager = TFLiteSessionManager(applicationContext)
             val yoloBall = YoloBallInferencer(tfliteManager)
-            yoloBall.loadModel()
+            yoloBall.loadModel(config)
 
             val inferStartTime = System.currentTimeMillis()
 
