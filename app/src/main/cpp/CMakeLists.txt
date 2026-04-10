@@ -64,6 +64,15 @@ add_library(hermivision_native SHARED
     engine/hermivision_pipeline.cpp
     engine/tracker.cpp
     models/yolo_ball_detector.cpp
+    engine/delegate_manager.h
+    engine/hermivision_pipeline.h
+    engine/i_ai_model.h
+    engine/preprocessor.h
+    engine/tracker.h
+    engine/types.h
+    models/yolo_ball_detector.h
+    xnnpack_delegate_official.h
+    xnnpack_delegate_official2.h
 )
 
 target_include_directories(hermivision_native PRIVATE

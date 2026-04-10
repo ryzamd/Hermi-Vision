@@ -56,7 +56,7 @@ private:
     TfLiteInterpreter* tryCreate(TfLiteModel* model, const std::string& cacheDir, DelegateType type, int numThreads);
 
     /// Clean up a delegate pointer based on its type
-    void deleteDelegate(TfLiteDelegate* delegate, DelegateType type);
+    static void deleteDelegate(TfLiteDelegate* delegate, DelegateType type);
 };
 
 } // namespace hermivision

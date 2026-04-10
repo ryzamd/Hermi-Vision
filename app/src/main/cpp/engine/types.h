@@ -2,14 +2,13 @@
 
 #include <opencv2/core.hpp>
 #include <string>
-#include <vector>
 
 namespace hermivision {
 
 // ───── Detection result from any model ─────
 struct Detection {
-    float cx, cy, w, h;   // center-format bbox (letterbox 640×640 space)
-    float score;
+    float cx{}, cy{}, w{}, h{};   // center-format bbox (letterbox 640×640 space)
+    float score{};
     int classId = 0;
 };
 

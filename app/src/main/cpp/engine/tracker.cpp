@@ -79,7 +79,7 @@ void BallTracker::update(float x, float y) {
 
 cv::Point2f BallTracker::predict() {
     if (!initialized_) {
-        return cv::Point2f(0.0f, 0.0f);
+        return {0.0f, 0.0f};
     }
 
     // Predict next state without a measurement
@@ -90,10 +90,10 @@ cv::Point2f BallTracker::predict() {
     if (missCount_ >= MAX_MISS_FRAMES) {
         LOGI("Tracker lost (>%d consecutive misses), resetting", MAX_MISS_FRAMES);
         reset();
-        return cv::Point2f(0.0f, 0.0f);
+        return {0.0f, 0.0f};
     }
 
-    return cv::Point2f(predicted.at<float>(0), predicted.at<float>(1));
+    return {predicted.at<float>(0), predicted.at<float>(1)};
 }
 
 } // namespace hermivision

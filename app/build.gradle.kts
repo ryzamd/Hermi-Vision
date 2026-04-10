@@ -65,7 +65,7 @@ android {
             version = "3.22.1"
         }
     }
-    aaptOptions {
+    androidResources {
         noCompress += "tflite"
     }
 }
