@@ -9,6 +9,8 @@ android {
     namespace = "com.hermitech.hermivision"
     compileSdk = 36
 
+    ndkVersion = "26.1.10909125"
+
     defaultConfig {
         applicationId = "com.hermitech.hermivision"
         minSdk = 30
@@ -17,6 +19,23 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // C++ pipeline — ARM64 only for Phase 1
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags("-std=c++17", "-O3", "-flto", "-DNDEBUG", "-fvisibility=hidden")
+                arguments(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_ARM_NEON=TRUE",
+                    "-DHERMIVISION_USE_GPU=ON",
+                    "-DHERMIVISION_USE_NNAPI=ON"
+                )
+            }
+        }
     }
 
     buildTypes {
@@ -38,8 +57,15 @@ android {
     }
     buildFeatures {
         compose = true
+        prefab = true           // Enable Prefab for OpenCV + TFLite native libs
     }
-    aaptOptions {
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    androidResources {
         noCompress += "tflite"
     }
 }

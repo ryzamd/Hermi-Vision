@@ -114,36 +114,61 @@ class HardwareVideoDecoder {
         Log.i(TAG, "Hardware extraction complete. Processed $frameCount frames.")
     }
 
+    // ── Pre-allocated buffers (reused every frame — zero GC pressure) ──
     private var nv21Buffer: ByteArray? = null
+    private var yuvMat: Mat? = null
+    private var rgbMat: Mat? = null
+    private var lastWidth = 0
+    private var lastHeight = 0
 
     private fun imageToRgbMat(image: Image): Mat {
+        val w = image.width
+        val h = image.height
+
         val yPlane = image.planes[0]
-        val vPlane = image.planes[2] 
+        val vPlane = image.planes[2]
         val yBuffer = yPlane.buffer
         val vBuffer = vPlane.buffer
         val ySize = yBuffer.remaining()
         val vSize = vBuffer.remaining()
         val totalSize = ySize + vSize
-        
-        if (nv21Buffer == null || nv21Buffer!!.size < totalSize) {
+
+        // Lazy-init buffers on first frame or if resolution changes
+        if (nv21Buffer == null || nv21Buffer!!.size < totalSize || w != lastWidth || h != lastHeight) {
             nv21Buffer = ByteArray(totalSize)
+            yuvMat?.release()
+            rgbMat?.release()
+            yuvMat = Mat(h + h / 2, w, CvType.CV_8UC1)
+            rgbMat = Mat(h, w, CvType.CV_8UC3)
+            lastWidth = w
+            lastHeight = h
+            Log.d(TAG, "Allocated decode buffers: ${w}x${h}")
         }
+
         val nv21 = nv21Buffer!!
-        
+
+        // Reset buffer positions (ByteBuffer.get advances position)
+        yBuffer.position(0)
+        vBuffer.position(0)
         yBuffer.get(nv21, 0, ySize)
         vBuffer.get(nv21, ySize, vSize)
 
-        val yuvMat = Mat(image.height + image.height / 2, image.width, CvType.CV_8UC1)
-        yuvMat.put(0, 0, nv21)
-
-        val rgbMat = Mat()
+        // Reuse pre-allocated Mats (no new Mat() per frame)
+        yuvMat!!.put(0, 0, nv21)
         Imgproc.cvtColor(yuvMat, rgbMat, Imgproc.COLOR_YUV2RGB_NV21)
-        yuvMat.release()
 
-        return rgbMat
+        // Clone for the channel — consumer will release this clone
+        // The pre-allocated rgbMat stays alive for reuse next frame
+        return rgbMat!!.clone()
     }
 
     fun clearBuffer() {
         nv21Buffer = null
+        yuvMat?.release()
+        yuvMat = null
+        rgbMat?.release()
+        rgbMat = null
+        lastWidth = 0
+        lastHeight = 0
     }
 }
