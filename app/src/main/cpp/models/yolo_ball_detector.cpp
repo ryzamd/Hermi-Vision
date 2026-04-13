@@ -17,11 +17,7 @@ namespace hermivision {
 // Model Lifecycle
 // ════════════════════════════════════════════════════════════════════════════
 
-bool YoloBallDetector::loadModel(
-    const std::string& modelPath,
-    DelegateType delegate,
-    int numThreads
-) {
+bool YoloBallDetector::loadModel(const std::string& modelPath, DelegateType delegate, int numThreads) {
     // 1. Load model from file
     model_ = TfLiteModelCreateFromFile(modelPath.c_str());
     if (!model_) {
@@ -93,22 +89,38 @@ std::string YoloBallDetector::getActiveDelegate() const {
 // Main Process — called once per frame
 // ════════════════════════════════════════════════════════════════════════════
 
-void YoloBallDetector::process(FrameContext& ctx) {
+void YoloBallDetector::process(FrameContext& ctx, FramePool& pool) {
     TfLiteInterpreter* interp = delegateManager_.getInterpreter();
     if (!interp) {
         ctx.ballVisible = false;
         return;
     }
 
+    // 1. Acquire frame from pool (refCount++)
+    FrameSlot* slot = pool.acquireLatest();
+    if (!slot) {
+        ctx.ballVisible = false;
+        return;
+    }
+
+    // 2. Use frame data from pool slot
+    ctx.originalWidth = slot->originalWidth;
+    ctx.originalHeight = slot->originalHeight;
+    ctx.frameId = slot->frameId;
+
     // ── Timing instrumentation (log every 30 frames) ──
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    // 1. Pre-process: Letterbox + Normalize → copy to TFLite input tensor
-    preprocess(ctx.rgbImage);
+    // 3. Pre-process: Letterbox + Normalize → copy to TFLite input tensor
+    preprocess(slot->rgb, slot->originalWidth, slot->originalHeight);
+
+    // 4. Release frame (refCount--) — slot reusable after preprocess
+    //    Pixels already copied into TFLite input tensor, original not needed
+    slot->release();
 
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    // 2. Invoke inference
+    // 5. Invoke inference
     if (TfLiteInterpreterInvoke(interp) != kTfLiteOk) {
         LOGW("TFLite invoke failed on frame %d", ctx.frameId);
         ctx.ballVisible = false;
@@ -117,7 +129,7 @@ void YoloBallDetector::process(FrameContext& ctx) {
 
     auto t2 = std::chrono::high_resolution_clock::now();
 
-    // 3. Post-process: Parse output → NMS → un-letterbox → write to ctx
+    // 6. Post-process: Parse output → NMS → un-letterbox → write to ctx
     postprocess(ctx);
 
     auto t3 = std::chrono::high_resolution_clock::now();
@@ -142,7 +154,7 @@ void YoloBallDetector::process(FrameContext& ctx) {
 //   3. convertTo only on ROI region, not full 640×640 — saves ~3ms
 // ════════════════════════════════════════════════════════════════════════════
 
-void YoloBallDetector::preprocess(const cv::Mat& rgbFrame) {
+void YoloBallDetector::preprocess(const cv::Mat& rgbFrame, int origW, int origH) {
     const int srcW = rgbFrame.cols;
     const int srcH = rgbFrame.rows;
 
@@ -190,6 +202,18 @@ void YoloBallDetector::preprocess(const cv::Mat& rgbFrame) {
         floatMat_.data,
         INPUT_SIZE * INPUT_SIZE * 3 * sizeof(float)
     );
+
+    // ── Debug Logging (every 30 frames) to check if tensor is empty ──
+    if (lastSrcW_ % 30 == 0 || true) { // Always log for debugging locally
+        double minVal, maxVal;
+        cv::minMaxLoc(floatMat_.reshape(1), &minVal, &maxVal);
+        const float* inData = reinterpret_cast<const float*>(TfLiteTensorData(inputTensor));
+        float centerPixelR = inData[(INPUT_SIZE/2 * INPUT_SIZE + INPUT_SIZE/2) * 3 + 0];
+        float centerPixelG = inData[(INPUT_SIZE/2 * INPUT_SIZE + INPUT_SIZE/2) * 3 + 1];
+        float centerPixelB = inData[(INPUT_SIZE/2 * INPUT_SIZE + INPUT_SIZE/2) * 3 + 2];
+        LOGI("PREPROCESS DUMP: input tensor min=%f, max=%f. Center pixel RGB=(%f, %f, %f). roi size=(%d, %d)", 
+            minVal, maxVal, centerPixelR, centerPixelG, centerPixelB, newW, newH);
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -208,23 +232,39 @@ void YoloBallDetector::postprocess(FrameContext& ctx) {
     // Row 4 (offset 4*8400): ball_score
     const float* output = reinterpret_cast<const float*>(TfLiteTensorData(outputTensor));
 
+    if (ctx.frameId % 30 == 0 || true) {
+        LOGI("POSTPROCESS DUMP: first 10 elements: [%f, %f, %f, %f, %f, %f, %f, %f, %f, %f]", 
+            output[0], output[1], output[2], output[3], output[4], output[5], output[6], output[7], output[8], output[9]);
+        LOGI("POSTPROCESS DUMP: elements at 8400*idx: [%f, %f, %f, %f, %f]", 
+            output[0 * NUM_ANCHORS], output[1 * NUM_ANCHORS], output[2 * NUM_ANCHORS], output[3 * NUM_ANCHORS], output[4 * NUM_ANCHORS]);
+    }
+
     // ── Step 1: Filter by confidence threshold ──
     std::vector<Detection> candidates;
     candidates.reserve(MAX_CANDIDATES);
 
+    float maxScore = 0.0f;
+
     for (int i = 0; i < NUM_ANCHORS; ++i) {
         const float score = output[4 * NUM_ANCHORS + i];   // Row 4
+        
+        if (score > maxScore) maxScore = score;
 
         if (score > CONF_THRESHOLD) {
             Detection det;
-            det.cx    = output[0 * NUM_ANCHORS + i];       // Row 0
-            det.cy    = output[1 * NUM_ANCHORS + i];       // Row 1
-            det.w     = output[2 * NUM_ANCHORS + i];       // Row 2
-            det.h     = output[3 * NUM_ANCHORS + i];       // Row 3
+            // Scale normalized [0..1] coordinates to absolute [0..INPUT_SIZE] tensor coordinates
+            det.cx    = output[0 * NUM_ANCHORS + i] * INPUT_SIZE;       // Row 0
+            det.cy    = output[1 * NUM_ANCHORS + i] * INPUT_SIZE;       // Row 1
+            det.w     = output[2 * NUM_ANCHORS + i] * INPUT_SIZE;       // Row 2
+            det.h     = output[3 * NUM_ANCHORS + i] * INPUT_SIZE;       // Row 3
             det.score = score;
             det.classId = 0;
             candidates.push_back(det);
         }
+    }
+
+    if (ctx.frameId % 30 == 0) {
+        LOGI("Frame %d max ball score: %f", ctx.frameId, maxScore);
     }
 
     if (candidates.empty()) {
@@ -252,10 +292,33 @@ void YoloBallDetector::postprocess(FrameContext& ctx) {
     const float rawX = best.cx - static_cast<float>(letterboxPadX_);
     const float rawY = best.cy - static_cast<float>(letterboxPadY_);
 
+    const float finalX = rawX / letterboxScale_;
+    const float finalY = rawY / letterboxScale_;
+    const float finalW = best.w / letterboxScale_;
+    const float finalH = best.h / letterboxScale_;
+
+    // Clamp: negative coords = detection in letterbox padding = false positive
+    if (finalX < 0 || finalY < 0 ||
+        finalX > lastSrcW_ || finalY > lastSrcH_) {
+        LOGW("Detection thrown out because out of bounds! rawX=%f rawY=%f finalX=%f finalY=%f srcW=%d srcH=%d scale=%f", rawX, rawY, finalX, finalY, lastSrcW_, lastSrcH_, letterboxScale_);
+        ctx.ballVisible = false;
+        return;
+    }
+
+    // Scale from pool dimensions (e.g. 1280x720) back to original video dimensions (e.g. 1920x1080)
+    float scaleX = static_cast<float>(ctx.originalWidth) / static_cast<float>(lastSrcW_);
+    float scaleY = static_cast<float>(ctx.originalHeight) / static_cast<float>(lastSrcH_);
+
     ctx.ballVisible = true;
-    ctx.ballX       = rawX / letterboxScale_;
-    ctx.ballY       = rawY / letterboxScale_;
+    ctx.ballX       = finalX * scaleX;
+    ctx.ballY       = finalY * scaleY;
+    ctx.ballW       = finalW * scaleX;
+    ctx.ballH       = finalH * scaleY;
     ctx.ballScore   = best.score;
+
+    if (ctx.frameId % 30 == 0) {
+        LOGI("Ball DETECTED Frame %d! x=%f, y=%f, w=%f, h=%f, score=%f", ctx.frameId, ctx.ballX, ctx.ballY, ctx.ballW, ctx.ballH, ctx.ballScore);
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -284,11 +347,7 @@ float YoloBallDetector::computeIoU(const Detection& a, const Detection& b) {
     return unionArea > 0.0f ? interArea / unionArea : 0.0f;
 }
 
-void YoloBallDetector::nms(
-    std::vector<Detection>& candidates,
-    float iouThreshold,
-    std::vector<Detection>& kept
-) {
+void YoloBallDetector::nms(std::vector<Detection>& candidates, float iouThreshold, std::vector<Detection>& kept) {
     kept.clear();
     std::vector<bool> suppressed(candidates.size(), false);
 
@@ -306,4 +365,4 @@ void YoloBallDetector::nms(
     }
 }
 
-} // namespace hermivision
+}

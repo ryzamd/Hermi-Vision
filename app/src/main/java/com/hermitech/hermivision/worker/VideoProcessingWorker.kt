@@ -7,25 +7,26 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.hermitech.hermivision.data.AppDatabase
 import com.hermitech.hermivision.domain.inference.NativePipeline
+import com.hermitech.hermivision.domain.inference.DelegateType
 import com.hermitech.hermivision.data.model.BallFrame
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
+import com.hermitech.hermivision.data.model.CourtResult
+import com.hermitech.hermivision.domain.decoder.HardwareVideoDecoder
 import org.opencv.android.OpenCVLoader
 import java.io.File
 
 /**
  * Background worker for ball detection pipeline.
  *
- * Pipeline v3 — C++ Native:
+ * Pipeline v4 — FramePool Native:
  *  1. Load AIConfig from Room DB (benchmark already done on first launch)
  *  2. Extract .tflite model to cache dir (one-time)
  *  3. Init C++ pipeline (NativePipeline → JNI → HermiVisionPipeline)
- *  4. Decode video → Mat channel → C++ inference per frame (zero-copy)
- *  5. Store results → UI shows numerical stats
+ *  4. Decode video → YUV planes → submitYuvFrame() → C++ FramePool
+ *  5. processLatestFrame() → YOLO acquires from pool → results
+ *  6. Store results → UI shows numerical stats
  *
- * All heavy computation (letterbox, normalize, TFLite invoke, NMS)
- * runs in native C++ — zero GC pressure, pre-allocated buffers.
+ * Zero-allocation path: decoder YUV → C++ pool → YOLO preprocess → TFLite
+ * No Channel<Mat>, no clone(), no Kotlin-side RGB conversion.
  */
 class VideoProcessingWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -39,8 +40,11 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
         const val KEY_PROGRESS = "progress"
         const val KEY_CURRENT_FRAME = "current_frame"
         const val STAGE_DECODING = "Decoding video..."
-        const val STAGE_BALL_TRACKING = "Detecting ball (YOLO26 C++)..."
+        const val STAGE_BALL_TRACKING = "Detecting ball + court (YOLO26 + MobileNet C++)..."
         const val STAGE_COMPLETE = "Complete"
+
+        // Court model name (MobileNetV3-Small, not device-dependent)
+        private const val COURT_MODEL_NAME = "Court-Keypoint-FP32.tflite"
     }
 
     /**
@@ -54,6 +58,7 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
         var avgConfidence: Float = 0f
         var inferenceTimeMs: Long = 0L
         var durationMs: Long = 0L
+        var courtResult: CourtResult = CourtResult.EMPTY
 
         fun clear() {
             ballFrames = emptyList()
@@ -62,6 +67,7 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             avgConfidence = 0f
             inferenceTimeMs = 0L
             durationMs = 0L
+            courtResult = CourtResult.EMPTY
         }
     }
 
@@ -69,7 +75,7 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
         val startTime = System.currentTimeMillis()
         ResultHolder.clear()
 
-        // Initialize OpenCV (needed for HardwareVideoDecoder Mat creation)
+        // Initialize OpenCV (still needed for some utility functions)
         if (!OpenCVLoader.initLocal()) {
             Log.e(TAG, "OpenCV initialization failed!")
             return Result.failure(workDataOf("error" to "OpenCV initialization failed"))
@@ -121,82 +127,77 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             Log.i(TAG, "Video: $totalFrames frames, ${videoWidth}x${videoHeight}")
             reportProgress(STAGE_DECODING, 100)
 
-            // --- Stage 2: C++ Native Ball Detection ---
+            // --- Stage 2: C++ Native Ball Detection (FramePool path) ---
             reportProgress(STAGE_BALL_TRACKING, 0)
 
-            // Extract .tflite model from assets to cache dir (TFLite C API needs file path)
             val modelPath = extractModelToCache(applicationContext, config.yoloModelName)
-            Log.i(TAG, "Model extracted: $modelPath")
+            Log.i(TAG, "Ball model extracted: $modelPath")
 
-            // Init C++ pipeline via JNI
+            // Extract court model to cache
+            val courtModelPath = extractModelToCache(applicationContext, COURT_MODEL_NAME)
+            Log.i(TAG, "Court model extracted: $courtModelPath")
+
+            // Init C++ pipeline via JNI (ball + court models)
             pipeline = NativePipeline()
             val ok = pipeline.init(
-                delegateType = config.tfliteDelegate.ordinal,  // 0=NNAPI, 1=GPU, 2=CPU
+                delegateType = config.tfliteDelegate.ordinal,
                 numThreads = config.numThreads,
-                modelPath = modelPath
+                ballModelPath = modelPath,
+                courtModelPath = courtModelPath,
+                courtDelegateType = DelegateType.CPU.ordinal  // Court runs on CPU (GPU busy with YOLO)
             )
             if (!ok) {
                 return Result.failure(workDataOf("error" to "C++ pipeline initialization failed"))
             }
-            Log.i(TAG, "C++ pipeline ready — delegate: ${pipeline.getActiveDelegate()}")
+            Log.i(TAG, "C++ pipeline ready — ball delegate: ${pipeline.getActiveDelegate()}")
 
             val inferStartTime = System.currentTimeMillis()
 
-            // Producer–Consumer: decode → channel → C++ inference
+            // Sequential FramePool flow (video analysis — process EVERY frame):
+            //   decode frame → submitYuvFrame → processLatestFrame → next frame
+            // This ensures each frame is processed exactly once (no skipping, no duplicates)
+            var lastCourtResult = CourtResult.EMPTY
+
             val ballFrames = run {
-                val channel = kotlinx.coroutines.channels.Channel<org.opencv.core.Mat>(capacity = 8)
-                val hardwareDecoder = com.hermitech.hermivision.domain.decoder.HardwareVideoDecoder()
+                val hardwareDecoder = HardwareVideoDecoder()
+                val results = mutableListOf<BallFrame>()
 
-                kotlinx.coroutines.coroutineScope {
-                    // Producer: decode video → Mat channel
-                    launch(Dispatchers.Default) {
-                        try {
-                            hardwareDecoder.decodeToMatChannel(videoPath, channel)
-                        } finally {
-                            hardwareDecoder.clearBuffer()
+                // Sequential: decoder submits each frame, then we process it immediately
+                hardwareDecoder.decodeToFramePool(videoPath, pipeline) { frameId ->
+                    // Process the frame that was just submitted to the pool
+                    val result = pipeline.processLatestFrame()
+
+                    results.add(BallFrame(
+                        frameId = frameId,
+                        isVisible = result[NativePipeline.IDX_BALL_VISIBLE] > 0.5f,
+                        x = result[NativePipeline.IDX_BALL_X],
+                        y = result[NativePipeline.IDX_BALL_Y]
+                    ))
+
+                    // Capture court keypoints (updated every ~30 frames by background thread)
+                    if (result.size >= NativePipeline.RESULT_SIZE &&
+                        result[NativePipeline.IDX_COURT_VALID] > 0.5f) {
+                        val kps = mutableListOf<Pair<Float, Float>>()
+                        for (i in 0 until 14) {
+                            val x = result[NativePipeline.IDX_COURT_KP_START + i * 2]
+                            val y = result[NativePipeline.IDX_COURT_KP_START + i * 2 + 1]
+                            kps.add(x to y)
                         }
+                        lastCourtResult = CourtResult(valid = true, keypoints = kps)
                     }
 
-                    // Consumer: C++ inference per frame (zero-copy via Mat address)
-                    val inferDeferred = async(Dispatchers.Default) {
-                        val results = mutableListOf<BallFrame>()
-                        var frameId = 0
-
-                        for (mat in channel) {
-                            // Pass native Mat pointer → C++ (ZERO pixel copy)
-                            val result = pipeline.processFrame(
-                                matAddr = mat.nativeObjAddr,
-                                frameId = frameId,
-                                origWidth = videoWidth,
-                                origHeight = videoHeight
-                            )
-                            // result = [ballVisible(0/1), ballX, ballY, ballScore]
-
-                            results.add(BallFrame(
-                                frameId = frameId,
-                                isVisible = result[0] > 0.5f,
-                                x = result[1],
-                                y = result[2]
-                            ))
-
-                            mat.release()
-                            frameId++
-
-                            // Report progress every 10 frames
-                            if (totalFrames > 0 && (frameId % 10 == 0 || frameId == totalFrames)) {
-                                val pct = (frameId * 100) / totalFrames
-                                setProgressAsync(workDataOf(
-                                    KEY_STAGE to STAGE_BALL_TRACKING,
-                                    KEY_PROGRESS to pct,
-                                    KEY_CURRENT_FRAME to frameId
-                                ))
-                            }
-                        }
-                        results
+                    // Report progress every 10 frames
+                    if (totalFrames > 0 && (frameId % 10 == 0 || frameId + 1 == totalFrames)) {
+                        val pct = ((frameId + 1) * 100) / totalFrames
+                        setProgressAsync(workDataOf(
+                            KEY_STAGE to STAGE_BALL_TRACKING,
+                            KEY_PROGRESS to pct,
+                            KEY_CURRENT_FRAME to (frameId + 1)
+                        ))
                     }
-
-                    inferDeferred.await()
                 }
+
+                results
             }
 
             val inferenceTimeMs = System.currentTimeMillis() - inferStartTime
@@ -208,11 +209,16 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             ResultHolder.totalFrames = ballFrames.size
             ResultHolder.visibleFrames = visibleFrames
             ResultHolder.inferenceTimeMs = inferenceTimeMs
+            ResultHolder.courtResult = lastCourtResult
 
             Log.i(TAG, "Ball tracking done: $visibleFrames/${ballFrames.size} visible, ${inferenceTimeMs}ms")
             Log.i(TAG, "  Delegate used: ${pipeline.getActiveDelegate()}")
             val fps = if (inferenceTimeMs > 0) ballFrames.size * 1000.0 / inferenceTimeMs else 0.0
             Log.i(TAG, "  Effective FPS: ${"%.1f".format(fps)} (${ballFrames.size} frames / ${inferenceTimeMs}ms)")
+            Log.i(TAG, "  Court detected: ${lastCourtResult.valid}")
+            if (lastCourtResult.valid) {
+                Log.i(TAG, "  Court keypoints: ${lastCourtResult.keypoints.size} points")
+            }
             reportProgress(STAGE_BALL_TRACKING, 100)
 
             // --- Done ---
@@ -234,15 +240,12 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             Log.e(TAG, "Pipeline failed", e)
             return Result.failure(workDataOf("error" to (e.message ?: "Unknown error")))
         } finally {
-            // Always release native resources
             pipeline?.release()
         }
     }
 
     /**
      * Extract a model file from assets to cache directory.
-     * TFLite C API requires a file path (cannot read Android assets directly).
-     * Only copies if file doesn't already exist in cache.
      */
     private fun extractModelToCache(context: Context, modelName: String): String {
         val cacheFile = File(context.cacheDir, modelName)

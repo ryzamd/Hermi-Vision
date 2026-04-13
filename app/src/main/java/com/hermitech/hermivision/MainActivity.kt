@@ -22,6 +22,7 @@ import com.hermitech.hermivision.ui.picker.VideoPickerScreen
 import com.hermitech.hermivision.ui.processing.ProcessingScreen
 import com.hermitech.hermivision.ui.processing.ProcessingViewModel
 import com.hermitech.hermivision.ui.results.ResultsScreen
+import com.hermitech.hermivision.ui.live.LiveAnalysisScreen
 import com.hermitech.hermivision.ui.theme.HermivisionTheme
 import com.hermitech.hermivision.worker.VideoProcessingWorker
 
@@ -42,6 +43,7 @@ private object Routes {
     const val PICKER = "picker"
     const val PROCESSING = "processing"
     const val RESULTS = "results"
+    const val LIVE = "live"
 }
 
 @Composable
@@ -92,6 +94,11 @@ fun HermivisionApp() {
                     navController.navigate(Routes.PROCESSING) {
                         launchSingleTop = true
                     }
+                },
+                onLiveAnalysis = {
+                    navController.navigate(Routes.LIVE) {
+                        launchSingleTop = true
+                    }
                 }
             )
         }
@@ -126,8 +133,17 @@ fun HermivisionApp() {
                 visibleFrames = holder.visibleFrames,
                 inferenceTimeMs = holder.inferenceTimeMs,
                 totalDurationMs = holder.durationMs,
+                courtResult = holder.courtResult,
                 onBackClick = {
                     VideoProcessingWorker.ResultHolder.clear()
+                    navController.popBackStack(Routes.PICKER, inclusive = false)
+                }
+            )
+        }
+
+        composable(Routes.LIVE) {
+            LiveAnalysisScreen(
+                onBackClick = {
                     navController.popBackStack(Routes.PICKER, inclusive = false)
                 }
             )
