@@ -27,6 +27,8 @@ private val CardBg = Color(0xFF1A1A2E)
 
 @Composable
 fun OptimizingScreen(uiState: OptimizingUiState, onComplete: () -> Unit) {
+    val error = uiState.error
+
     // Auto-navigate to picker after completion
     LaunchedEffect(uiState.isDone) {
         if (uiState.isDone) {
@@ -44,8 +46,8 @@ fun OptimizingScreen(uiState: OptimizingUiState, onComplete: () -> Unit) {
             verticalArrangement = Arrangement.Center
         ) {
             when {
-                uiState.error != null -> ErrorContent(
-                    error = uiState.error
+                error != null -> ErrorContent(
+                    error = error
                 )
                 uiState.isDone -> DoneContent(
                     deviceSummary = uiState.deviceSummary,

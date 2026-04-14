@@ -26,6 +26,8 @@ private val CardBg = Color(0xFF1A1A2E)
 
 @Composable
 fun ProcessingScreen(uiState: ProcessingUiState, onCancelClick: () -> Unit, onViewResultsClick: () -> Unit, onRetryClick: () -> Unit) {
+    val error = uiState.error
+
     Surface(modifier = Modifier.fillMaxSize(), color = DarkBg) {
         Column(
             modifier = Modifier
@@ -35,8 +37,8 @@ fun ProcessingScreen(uiState: ProcessingUiState, onCancelClick: () -> Unit, onVi
             verticalArrangement = Arrangement.Center
         ) {
             when {
-                uiState.error != null -> ErrorContent(
-                    error = uiState.error,
+                error != null -> ErrorContent(
+                    error = error,
                     onRetryClick = onRetryClick
                 )
                 uiState.isComplete -> CompleteContent(
