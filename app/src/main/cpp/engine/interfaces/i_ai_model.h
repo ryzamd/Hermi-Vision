@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types.h"
-#include "frame_pool.h"
+#include "../types.h"
+#include "../frame_pool.h"
 #include <string>
 
 namespace hermivision {
@@ -31,17 +31,10 @@ class IAIModel {
 public:
     virtual ~IAIModel() = default;
 
-    /// Load model file and configure hardware delegate with auto-fallback
-    virtual bool loadModel(const std::string& modelPath, DelegateType delegate, int numThreads) = 0;
-
-    /// Process from FramePool — model acquires frame internally
-    virtual void process(FrameContext& ctx, FramePool& pool) = 0;
-
-    /// Release all resources (model, interpreter, delegates, buffers)
-    virtual void release() = 0;
-
-    /// Query which delegate was actually applied ("NPU (NNAPI)", "GPU", "CPU (4 threads)")
     virtual std::string getActiveDelegate() const = 0;
+    virtual bool loadModel(const std::string& modelPath, DelegateType delegate, int numThreads) = 0;
+    virtual void process(FrameContext& ctx, FramePool& pool) = 0;
+    virtual void release() = 0;
 };
 
 }

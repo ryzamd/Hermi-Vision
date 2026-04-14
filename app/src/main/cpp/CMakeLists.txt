@@ -63,20 +63,21 @@ add_library(hermivision_native SHARED
     engine/delegate_manager.cpp
     engine/preprocessor.cpp
     engine/hermivision_pipeline.cpp
+    engine/pipeline_builder.cpp
     engine/tracker.cpp
     models/yolo_ball_detector.cpp
     models/court_detector.cpp
     engine/frame_pool.h
     engine/delegate_manager.h
     engine/hermivision_pipeline.h
-    engine/i_ai_model.h
+    engine/pipeline_builder.h
+    engine/interfaces/i_ai_model.h
+    engine/interfaces/i_delegate_manager.h
     engine/preprocessor.h
     engine/tracker.h
     engine/types.h
     models/yolo_ball_detector.h
     models/court_detector.h
-    xnnpack_delegate_official.h
-    xnnpack_delegate_official2.h
 )
 
 target_include_directories(hermivision_native PRIVATE

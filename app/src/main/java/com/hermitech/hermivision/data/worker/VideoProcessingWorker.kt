@@ -1,16 +1,20 @@
-package com.hermitech.hermivision.worker
+package com.hermitech.hermivision.data.worker
 
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.hermitech.hermivision.data.AppDatabase
-import com.hermitech.hermivision.domain.inference.NativePipeline
+import com.hermitech.hermivision.data.inference.NativePipeline
+import com.hermitech.hermivision.domain.inference.INativePipeline
 import com.hermitech.hermivision.domain.inference.DelegateType
-import com.hermitech.hermivision.data.model.BallFrame
-import com.hermitech.hermivision.data.model.CourtResult
-import com.hermitech.hermivision.domain.decoder.HardwareVideoDecoder
+import com.hermitech.hermivision.domain.model.BallFrame
+import com.hermitech.hermivision.domain.model.CourtResult
+import com.hermitech.hermivision.data.decoder.VideoDecoder
+import com.hermitech.hermivision.domain.decoder.IVideoDecoder
+import com.hermitech.hermivision.data.inference.ProcessingResult
+import com.hermitech.hermivision.data.inference.ProcessingResultRepository
+import com.hermitech.hermivision.data.AppDatabase
 import org.opencv.android.OpenCVLoader
 import java.io.File
 
@@ -39,41 +43,17 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
         const val KEY_STAGE = "stage"
         const val KEY_PROGRESS = "progress"
         const val KEY_CURRENT_FRAME = "current_frame"
-        const val STAGE_DECODING = "Decoding video..."
-        const val STAGE_BALL_TRACKING = "Detecting ball + court (YOLO26 + MobileNet C++)..."
+        const val STAGE_DECODING = "Decoding video"
+        const val STAGE_BALL_TRACKING = "Detecting ball and court"
         const val STAGE_COMPLETE = "Complete"
 
-        // Court model name (MobileNetV3-Small, not device-dependent)
         private const val COURT_MODEL_NAME = "Court-Keypoint-FP32.tflite"
     }
 
-    /**
-     * In-memory result holder.
-     * WorkManager output Data is limited to 10KB, so store full results here.
-     */
-    object ResultHolder {
-        var ballFrames: List<BallFrame> = emptyList()
-        var totalFrames: Int = 0
-        var visibleFrames: Int = 0
-        var avgConfidence: Float = 0f
-        var inferenceTimeMs: Long = 0L
-        var durationMs: Long = 0L
-        var courtResult: CourtResult = CourtResult.EMPTY
-
-        fun clear() {
-            ballFrames = emptyList()
-            totalFrames = 0
-            visibleFrames = 0
-            avgConfidence = 0f
-            inferenceTimeMs = 0L
-            durationMs = 0L
-            courtResult = CourtResult.EMPTY
-        }
-    }
 
     override suspend fun doWork(): Result {
         val startTime = System.currentTimeMillis()
-        ResultHolder.clear()
+        ProcessingResultRepository.clear()
 
         // Initialize OpenCV (still needed for some utility functions)
         if (!OpenCVLoader.initLocal()) {
@@ -82,21 +62,19 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
         }
         Log.i(TAG, "OpenCV initialized successfully")
 
-        var pipeline: NativePipeline? = null
+        var pipeline: INativePipeline? = null
 
         try {
             // --- Load AIConfig from Room DB (benchmark was done on first launch) ---
             val db = AppDatabase.getInstance(applicationContext)
-            val configEntity = db.deviceConfigDao().getConfig()
-                ?: return Result.failure(workDataOf("error" to "Device not optimized. Please restart the app."))
+            val configEntity = db.deviceConfigDao().getConfig() ?: return Result.failure(workDataOf("error" to "Device not optimized. Please restart the app."))
             val config = configEntity.toAIConfig()
             Log.i(TAG, "AI Config: ${config.deviceSummary}")
 
             // --- Stage 1: Decode video metadata ---
             reportProgress(STAGE_DECODING, 0)
 
-            val videoPath = inputData.getString(KEY_VIDEO_URI)
-                ?: return Result.failure(workDataOf("error" to "No video path provided"))
+            val videoPath = inputData.getString(KEY_VIDEO_URI) ?: return Result.failure(workDataOf("error" to "No video path provided"))
 
             val videoFile = File(videoPath)
             if (!videoFile.exists()) {
@@ -130,11 +108,11 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             // --- Stage 2: C++ Native Ball Detection (FramePool path) ---
             reportProgress(STAGE_BALL_TRACKING, 0)
 
-            val modelPath = extractModelToCache(applicationContext, config.yoloModelName)
+            val modelPath = com.hermitech.hermivision.data.inference.ModelCache.extractModelToCache(applicationContext, config.yoloModelName)
             Log.i(TAG, "Ball model extracted: $modelPath")
 
             // Extract court model to cache
-            val courtModelPath = extractModelToCache(applicationContext, COURT_MODEL_NAME)
+            val courtModelPath = com.hermitech.hermivision.data.inference.ModelCache.extractModelToCache(applicationContext, COURT_MODEL_NAME)
             Log.i(TAG, "Court model extracted: $courtModelPath")
 
             // Init C++ pipeline via JNI (ball + court models)
@@ -159,7 +137,7 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             var lastCourtResult = CourtResult.EMPTY
 
             val ballFrames = run {
-                val hardwareDecoder = HardwareVideoDecoder()
+                val hardwareDecoder: IVideoDecoder = VideoDecoder()
                 val results = mutableListOf<BallFrame>()
 
                 // Sequential: decoder submits each frame, then we process it immediately
@@ -175,8 +153,8 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
                     ))
 
                     // Capture court keypoints (updated every ~30 frames by background thread)
-                    if (result.size >= NativePipeline.RESULT_SIZE &&
-                        result[NativePipeline.IDX_COURT_VALID] > 0.5f) {
+                    if (result.size >= NativePipeline.RESULT_SIZE && result[NativePipeline.IDX_COURT_VALID] > 0.5f)
+                    {
                         val kps = mutableListOf<Pair<Float, Float>>()
                         for (i in 0 until 14) {
                             val x = result[NativePipeline.IDX_COURT_KP_START + i * 2]
@@ -187,7 +165,8 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
                     }
 
                     // Report progress every 10 frames
-                    if (totalFrames > 0 && (frameId % 10 == 0 || frameId + 1 == totalFrames)) {
+                    if (totalFrames > 0 && (frameId % 10 == 0 || frameId + 1 == totalFrames))
+                    {
                         val pct = ((frameId + 1) * 100) / totalFrames
                         setProgressAsync(workDataOf(
                             KEY_STAGE to STAGE_BALL_TRACKING,
@@ -201,29 +180,30 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             }
 
             val inferenceTimeMs = System.currentTimeMillis() - inferStartTime
-
-            // Compute stats
             val visibleFrames = ballFrames.count { it.isVisible }
+            val durationMs = System.currentTimeMillis() - startTime
 
-            ResultHolder.ballFrames = ballFrames
-            ResultHolder.totalFrames = ballFrames.size
-            ResultHolder.visibleFrames = visibleFrames
-            ResultHolder.inferenceTimeMs = inferenceTimeMs
-            ResultHolder.courtResult = lastCourtResult
+            // Publish results via Repository (replaces ResultHolder)
+            ProcessingResultRepository.publish(
+                ProcessingResult(
+                    ballFrames = ballFrames,
+                    totalFrames = ballFrames.size,
+                    visibleFrames = visibleFrames,
+                    avgConfidence = 0f,
+                    inferenceTimeMs = inferenceTimeMs,
+                    durationMs = durationMs,
+                    courtResult = lastCourtResult
+                )
+            )
 
             Log.i(TAG, "Ball tracking done: $visibleFrames/${ballFrames.size} visible, ${inferenceTimeMs}ms")
             Log.i(TAG, "  Delegate used: ${pipeline.getActiveDelegate()}")
-            val fps = if (inferenceTimeMs > 0) ballFrames.size * 1000.0 / inferenceTimeMs else 0.0
-            Log.i(TAG, "  Effective FPS: ${"%.1f".format(fps)} (${ballFrames.size} frames / ${inferenceTimeMs}ms)")
+            Log.i(TAG, "  Effective FPS: ${"%.1f".format(if (inferenceTimeMs > 0) ballFrames.size * 1000.0 / inferenceTimeMs else 0.0)}")
             Log.i(TAG, "  Court detected: ${lastCourtResult.valid}")
             if (lastCourtResult.valid) {
                 Log.i(TAG, "  Court keypoints: ${lastCourtResult.keypoints.size} points")
             }
             reportProgress(STAGE_BALL_TRACKING, 100)
-
-            // --- Done ---
-            val durationMs = System.currentTimeMillis() - startTime
-            ResultHolder.durationMs = durationMs
 
             Log.i(TAG, "Pipeline complete in ${durationMs / 1000}s")
             reportProgress(STAGE_COMPLETE, 100)
@@ -244,21 +224,6 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
         }
     }
 
-    /**
-     * Extract a model file from assets to cache directory.
-     */
-    private fun extractModelToCache(context: Context, modelName: String): String {
-        val cacheFile = File(context.cacheDir, modelName)
-        if (!cacheFile.exists()) {
-            Log.i(TAG, "Extracting model to cache: $modelName")
-            context.assets.open("models/$modelName").use { input ->
-                cacheFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
-        return cacheFile.absolutePath
-    }
 
     private suspend fun reportProgress(stage: String, percent: Int) {
         setProgress(workDataOf(

@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.hermitech.hermivision.data.dao.DeviceConfigDao
-import com.hermitech.hermivision.data.model.DeviceConfigEntity
+import com.hermitech.hermivision.data.local.DeviceConfigDao
+import com.hermitech.hermivision.data.local.DeviceConfigEntity
 
 @Database(entities = [DeviceConfigEntity::class], version = 1, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {

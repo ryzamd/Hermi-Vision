@@ -1,20 +1,14 @@
 package com.hermitech.hermivision.domain.inference
 
 enum class DeviceTier {
-    /** Real NPU available and fast: Snapdragon 8xx, Dimensity 9000+, Exynos 2200+ */
     HIGH,
-    /** Strong GPU, limited/no NPU: Snapdragon 7xx, Helio G99, Mali-G78+ */
     MEDIUM,
-    /** CPU-focused: Helio G85, Snapdragon 4xx, low RAM devices */
     LOW
 }
 
 enum class DelegateType {
-    /** NNAPI — routes to NPU/DSP on supported chipsets */
     NNAPI,
-    /** GPU delegate — OpenGL/OpenCL compute shaders */
     GPU,
-    /** CPU with XNNPACK auto-optimization */
     CPU
 }
 

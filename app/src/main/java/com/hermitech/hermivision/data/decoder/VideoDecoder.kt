@@ -1,11 +1,15 @@
-package com.hermitech.hermivision.domain.decoder
+package com.hermitech.hermivision.data.decoder
+
+import com.hermitech.hermivision.domain.decoder.IVideoDecoder
 
 import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
+import com.hermitech.hermivision.domain.decoder.VideoMetadata
 import android.util.Log
-import com.hermitech.hermivision.domain.inference.NativePipeline
+import com.hermitech.hermivision.domain.inference.INativePipeline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.withContext
@@ -13,15 +17,15 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
 
-class HardwareVideoDecoder {
+class VideoDecoder : IVideoDecoder {
 
     companion object {
-        private const val TAG = "HardwareVideoDecoder"
+        private const val TAG = "VideoDecoder"
         private const val TIMEOUT_USEC = 10000L
     }
 
     /**
-     * [NEW] Decode video frames and submit YUV planes directly to C++ FramePool.
+     * Decode video frames and submit YUV planes directly to C++ FramePool.
      *
      * This is the zero-allocation path:
      *   Image.getPlanes() → ByteBuffer (direct) → JNI → C++ PreProcessor::yuvToRgb()
@@ -31,7 +35,7 @@ class HardwareVideoDecoder {
      * @param pipeline  NativePipeline with initialized FramePool
      * @param onFrame   Callback with (frameId, totalDecoded) for progress reporting
      */
-    suspend fun decodeToFramePool(videoPath: String, pipeline: NativePipeline, onFrame: ((frameId: Int) -> Unit)? = null) = withContext(Dispatchers.Default) {
+    override suspend fun decodeToFramePool(videoPath: String, pipeline: INativePipeline, onFrame: ((frameId: Int) -> Unit)?) = withContext(Dispatchers.Default) {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(videoPath)
@@ -282,5 +286,22 @@ class HardwareVideoDecoder {
         rgbMat = null
         lastWidth = 0
         lastHeight = 0
+    }
+    override suspend fun getVideoMetadata(videoPath: String): VideoMetadata = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(videoPath)
+            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val frameCountStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
+            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val frameCount = frameCountStr?.toIntOrNull() ?: 0
+            val durationMs = durationStr?.toLongOrNull() ?: 0L
+            val fps = if (durationMs > 0) (frameCount * 1000f / durationMs) else 30f
+
+            VideoMetadata(width, height, fps)
+        } finally {
+            retriever.release()
+        }
     }
 }

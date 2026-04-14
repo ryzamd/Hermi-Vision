@@ -129,10 +129,7 @@ object CourtHomography {
      * @param dst 4 destination points (mini-map corners)
      * @return 9-element FloatArray representing the 3x3 matrix, or null if degenerate
      */
-    fun computeHomography(
-        src: List<Pair<Float, Float>>,
-        dst: List<Pair<Float, Float>>
-    ): FloatArray? {
+    fun computeHomography(src: List<Pair<Float, Float>>, dst: List<Pair<Float, Float>>): FloatArray? {
         if (src.size < 4 || dst.size < 4) return null
 
         // Build 8x8 matrix A and 8x1 vector b

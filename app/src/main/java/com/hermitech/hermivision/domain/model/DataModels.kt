@@ -1,4 +1,4 @@
-package com.hermitech.hermivision.data.model
+package com.hermitech.hermivision.domain.model
 
 data class BallFrame(
     val frameId: Int,
@@ -20,10 +20,7 @@ data class BallFrame(
  *    │          │                  │            │
  *  KP3(BL)── KP6(BL-in)────── KP8(BR-in)── KP4(BR)     Row3 (far baseline)
  */
-data class CourtResult(
-    val valid: Boolean,
-    val keypoints: List<Pair<Float, Float>>  // 14 pairs of (x, y) in original pixel coords
-) {
+data class CourtResult(val valid: Boolean, val keypoints: List<Pair<Float, Float>>) {
     companion object {
         val EMPTY = CourtResult(valid = false, keypoints = emptyList())
 

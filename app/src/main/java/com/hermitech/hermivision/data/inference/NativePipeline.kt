@@ -1,4 +1,9 @@
-package com.hermitech.hermivision.domain.inference
+package com.hermitech.hermivision.data.inference
+
+import com.hermitech.hermivision.domain.inference.INativePipeline
+import com.hermitech.hermivision.domain.inference.DelegateType
+import com.hermitech.hermivision.domain.inference.AIConfig
+import com.hermitech.hermivision.domain.inference.DeviceTier
 
 import android.util.Log
 import java.nio.ByteBuffer
@@ -21,7 +26,7 @@ import java.nio.ByteBuffer
  *   val result = pipeline.processLatestFrame()
  *   pipeline.release()
  */
-class NativePipeline {
+class NativePipeline : INativePipeline {
 
     companion object {
         private const val TAG = "NativePipeline"
@@ -58,12 +63,12 @@ class NativePipeline {
      * @param courtDelegateType DelegateType.ordinal for court model (default CPU=2)
      * @return true if initialization succeeded
      */
-    fun init(
+    override fun init(
         delegateType: Int,
         numThreads: Int,
         ballModelPath: String,
-        courtModelPath: String = "",
-        courtDelegateType: Int = 2
+        courtModelPath: String,
+        courtDelegateType: Int
     ): Boolean {
         val ok = nativeInitPipeline(delegateType, numThreads, ballModelPath, courtModelPath, courtDelegateType)
         initialized = ok
@@ -89,12 +94,7 @@ class NativePipeline {
      * @param uvStride  Row stride of UV plane
      * @param frameId   Sequential frame number
      */
-    fun submitYuvFrame(
-        yBuffer: ByteBuffer, uvBuffer: ByteBuffer,
-        width: Int, height: Int,
-        yStride: Int, uvStride: Int,
-        frameId: Int
-    ) {
+    override fun submitYuvFrame(yBuffer: ByteBuffer, uvBuffer: ByteBuffer, width: Int, height: Int, yStride: Int, uvStride: Int, frameId: Int) {
         if (!initialized) return
         nativeSubmitYuvFrame(yBuffer, uvBuffer, width, height, yStride, uvStride, frameId)
     }
@@ -107,7 +107,7 @@ class NativePipeline {
      * @param origWidth  Original frame width
      * @param origHeight Original frame height
      */
-    fun submitFrame(matAddr: Long, frameId: Int, origWidth: Int, origHeight: Int) {
+    override fun submitFrame(matAddr: Long, frameId: Int, origWidth: Int, origHeight: Int) {
         if (!initialized) return
         nativeSubmitFrame(matAddr, frameId, origWidth, origHeight)
     }
@@ -119,7 +119,7 @@ class NativePipeline {
      * @return FloatArray[33]: [ballVisible, ballX, ballY, ballScore,
      *                          courtValid, kp1x, kp1y, ..., kp14x, kp14y]
      */
-    fun processLatestFrame(): FloatArray {
+    override fun processLatestFrame(): FloatArray {
         if (!initialized) return FloatArray(RESULT_SIZE)
         return nativeProcessLatestFrame()
     }
@@ -137,7 +137,7 @@ class NativePipeline {
      * Extract 14 court keypoints (x, y pairs in original pixel coords) from a result array.
      * @return FloatArray[28] or null if court detection is not valid
      */
-    fun getCourtKeypoints(result: FloatArray): FloatArray? {
+    override fun getCourtKeypoints(result: FloatArray): FloatArray? {
         if (result.size < RESULT_SIZE || result[IDX_COURT_VALID] <= 0.5f) return null
         return result.copyOfRange(IDX_COURT_KP_START, IDX_COURT_KP_START + 28)
     }
@@ -145,7 +145,7 @@ class NativePipeline {
     /**
      * Release all native resources.
      */
-    fun release() {
+    override fun release() {
         if (initialized) {
             nativeReleasePipeline()
             initialized = false
@@ -156,21 +156,13 @@ class NativePipeline {
     /**
      * Get the hardware delegate that was actually applied.
      */
-    fun getActiveDelegate(): String {
+    override fun getActiveDelegate(): String {
         return nativeGetActiveDelegate()
     }
 
     // ── JNI native methods ──
-    private external fun nativeInitPipeline(
-        delegateType: Int, numThreads: Int,
-        ballModelPath: String, courtModelPath: String, courtDelegateType: Int
-    ): Boolean
-    private external fun nativeSubmitYuvFrame(
-        yBuffer: ByteBuffer, uvBuffer: ByteBuffer,
-        width: Int, height: Int,
-        yStride: Int, uvStride: Int,
-        frameId: Int
-    )
+    private external fun nativeSubmitYuvFrame(yBuffer: ByteBuffer, uvBuffer: ByteBuffer, width: Int, height: Int, yStride: Int, uvStride: Int, frameId: Int)
+    private external fun nativeInitPipeline(delegateType: Int, numThreads: Int, ballModelPath: String, courtModelPath: String, courtDelegateType: Int): Boolean
     private external fun nativeSubmitFrame(matAddr: Long, frameId: Int, origWidth: Int, origHeight: Int)
     private external fun nativeProcessLatestFrame(): FloatArray
     private external fun nativeProcessFrame(matAddr: Long, frameId: Int, origWidth: Int, origHeight: Int): FloatArray

@@ -26,7 +26,6 @@ private val CardBg = Color(0xFF1A1A2E)
 
 @Composable
 fun OptimizingScreen(uiState: OptimizingUiState, onComplete: () -> Unit) {
-    // Auto-navigate to picker after completion
     LaunchedEffect(uiState.isDone) {
         if (uiState.isDone) {
             delay(2000L)
@@ -47,7 +46,6 @@ fun OptimizingScreen(uiState: OptimizingUiState, onComplete: () -> Unit) {
                     error = uiState.error
                 )
                 uiState.isDone -> DoneContent(
-                    deviceSummary = uiState.deviceSummary,
                     benchmarkResults = uiState.benchmarkResults
                 )
                 else -> BenchmarkingContent(
@@ -103,13 +101,6 @@ private fun BenchmarkingContent(stage: String, progress: Int) {
     Spacer(modifier = Modifier.height(40.dp))
 
     Text(
-        text = "⚡",
-        fontSize = 32.sp
-    )
-
-    Spacer(modifier = Modifier.height(16.dp))
-
-    Text(
         text = "Optimizing for your device",
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight.Bold,
@@ -157,7 +148,7 @@ private fun BenchmarkingContent(stage: String, progress: Int) {
 }
 
 @Composable
-private fun DoneContent(deviceSummary: String, benchmarkResults: String) {
+private fun DoneContent(benchmarkResults: String) {
     Text(
         text = "✓",
         fontSize = 56.sp,

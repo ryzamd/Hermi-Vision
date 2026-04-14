@@ -34,7 +34,8 @@ bool YoloBallDetector::loadModel(const std::string& modelPath, DelegateType dele
     }
 
     // 3. Create interpreter with delegate auto-fallback
-    TfLiteInterpreter* interp = delegateManager_.createInterpreter(model_, cacheDir, delegate, numThreads);
+    delegateManager_ = std::make_unique<DelegateManager>();
+    TfLiteInterpreter* interp = delegateManager_->createInterpreter(model_, cacheDir, delegate, numThreads);
     if (!interp) {
         LOGE("Failed to create interpreter for: %s", modelPath.c_str());
         TfLiteModelDelete(model_);
@@ -55,7 +56,7 @@ bool YoloBallDetector::loadModel(const std::string& modelPath, DelegateType dele
     floatMat_   = cv::Mat(INPUT_SIZE, INPUT_SIZE, CV_32FC3);
 
     LOGI("YoloBall loaded: %s on %s", modelPath.c_str(),
-         delegateManager_.getActiveDelegateName().c_str());
+         delegateManager_->getActiveDelegateName().c_str());
     LOGI("  Input:  [1, %d, %d, 3] float32",
          TfLiteTensorDim(inputTensor, 1), TfLiteTensorDim(inputTensor, 2));
 
@@ -67,7 +68,7 @@ bool YoloBallDetector::loadModel(const std::string& modelPath, DelegateType dele
 }
 
 void YoloBallDetector::release() {
-    delegateManager_.release();   // Releases interpreter + delegate
+    if (delegateManager_) delegateManager_->release();   // Releases interpreter + delegate
 
     if (model_) {
         TfLiteModelDelete(model_);
@@ -82,7 +83,7 @@ void YoloBallDetector::release() {
 }
 
 std::string YoloBallDetector::getActiveDelegate() const {
-    return delegateManager_.getActiveDelegateName();
+    return delegateManager_ ? delegateManager_->getActiveDelegateName() : "none";
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -90,7 +91,7 @@ std::string YoloBallDetector::getActiveDelegate() const {
 // ════════════════════════════════════════════════════════════════════════════
 
 void YoloBallDetector::process(FrameContext& ctx, FramePool& pool) {
-    TfLiteInterpreter* interp = delegateManager_.getInterpreter();
+    TfLiteInterpreter* interp = delegateManager_ ? delegateManager_->getInterpreter() : nullptr;
     if (!interp) {
         ctx.ballVisible = false;
         return;
@@ -193,7 +194,7 @@ void YoloBallDetector::preprocess(const cv::Mat& rgbFrame, int origW, int origH)
     roiMat.convertTo(floatRoi, CV_32FC3, 1.0 / 255.0);
 
     // ── Step 4: Copy to TFLite input tensor ──
-    TfLiteInterpreter* interp = delegateManager_.getInterpreter();
+    TfLiteInterpreter* interp = delegateManager_->getInterpreter();
     TfLiteTensor* inputTensor = TfLiteInterpreterGetInputTensor(interp, 0);
 
     // Direct memcpy — floatMat_ data layout matches NHWC [1, 640, 640, 3]
@@ -221,7 +222,7 @@ void YoloBallDetector::preprocess(const cv::Mat& rgbFrame, int origW, int origH)
 // ════════════════════════════════════════════════════════════════════════════
 
 void YoloBallDetector::postprocess(FrameContext& ctx) {
-    TfLiteInterpreter* interp = delegateManager_.getInterpreter();
+    TfLiteInterpreter* interp = delegateManager_->getInterpreter();
     const TfLiteTensor* outputTensor = TfLiteInterpreterGetOutputTensor(interp, 0);
 
     // Get raw output pointer — layout: [1, 5, 8400] row-major

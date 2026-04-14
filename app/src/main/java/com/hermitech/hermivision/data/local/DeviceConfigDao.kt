@@ -1,10 +1,10 @@
-package com.hermitech.hermivision.data.dao
+package com.hermitech.hermivision.data.local
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import com.hermitech.hermivision.data.model.DeviceConfigEntity
+import com.hermitech.hermivision.data.local.DeviceConfigEntity
 
 @Dao
 interface DeviceConfigDao {

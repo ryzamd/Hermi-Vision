@@ -4,10 +4,10 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import com.hermitech.hermivision.data.AppDatabase
-import com.hermitech.hermivision.data.model.CourtResult
+import com.hermitech.hermivision.domain.model.CourtResult
 import com.hermitech.hermivision.domain.court.CourtHomography
 import com.hermitech.hermivision.domain.inference.DelegateType
-import com.hermitech.hermivision.domain.inference.NativePipeline
+import com.hermitech.hermivision.data.inference.NativePipeline
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -138,8 +138,8 @@ class LiveViewModel : ViewModel() {
             val config = configEntity.toAIConfig()
             Log.i(TAG, "AI Config: ${config.deviceSummary}")
 
-            val ballModelPath = extractModelToCache(context, config.yoloModelName)
-            val courtModelPath = extractModelToCache(context, COURT_MODEL_NAME)
+            val ballModelPath = com.hermitech.hermivision.data.inference.ModelCache.extractModelToCache(context, config.yoloModelName)
+            val courtModelPath = com.hermitech.hermivision.data.inference.ModelCache.extractModelToCache(context, COURT_MODEL_NAME)
 
             val ok = pipeline.init(
                 delegateType = config.tfliteDelegate.ordinal,
@@ -276,19 +276,6 @@ class LiveViewModel : ViewModel() {
         lastFrameTimeNs = now
     }
 
-    private fun extractModelToCache(context: Context, modelName: String): String {
-        val cacheFile = File(context.cacheDir, modelName)
-        if (cacheFile.exists() && cacheFile.length() > 0) {
-            return cacheFile.absolutePath
-        }
-        Log.i(TAG, "Extracting model to cache: $modelName")
-        context.assets.open(modelName).use { input ->
-            cacheFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        return cacheFile.absolutePath
-    }
 
     override fun onCleared() {
         super.onCleared()

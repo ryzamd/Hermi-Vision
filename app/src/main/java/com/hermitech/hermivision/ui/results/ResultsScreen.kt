@@ -20,8 +20,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hermitech.hermivision.data.model.BallFrame
-import com.hermitech.hermivision.data.model.CourtResult
+import com.hermitech.hermivision.domain.model.BallFrame
+import com.hermitech.hermivision.domain.model.CourtResult
 
 // ── Design Tokens ──
 private val DarkBg = Color(0xFF0F0F23)

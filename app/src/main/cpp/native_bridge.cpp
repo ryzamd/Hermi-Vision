@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "engine/hermivision_pipeline.h"
+#include "engine/pipeline_builder.h"
 
 #include <opencv2/core.hpp>
 
@@ -41,32 +42,32 @@ Java_com_hermitech_hermivision_domain_inference_NativePipeline_nativeInitPipelin
         return JNI_FALSE;
     }
 
-    hermivision::PipelineConfig config;
-    config.delegate      = static_cast<hermivision::DelegateType>(delegateType);
-    config.numThreads    = numThreads;
-    config.ballModelPath = std::string(ballPath);
-
+    hermivision::PipelineBuilder builder;
+    builder.withBallModel(
+        std::string(ballPath),
+        static_cast<hermivision::DelegateType>(delegateType),
+        numThreads
+    );
     env->ReleaseStringUTFChars(ballModelPath, ballPath);
 
     if (courtModelPath != nullptr) {
         const char* courtPath = env->GetStringUTFChars(courtModelPath, nullptr);
         if (courtPath) {
-            config.courtModelPath = std::string(courtPath);
-            config.courtDelegate = static_cast<hermivision::DelegateType>(courtDelegateType);
+            builder.withCourtModel(
+                std::string(courtPath),
+                static_cast<hermivision::DelegateType>(courtDelegateType)
+            );
             env->ReleaseStringUTFChars(courtModelPath, courtPath);
         }
     }
 
-    g_pipeline = new hermivision::HermiVisionPipeline();
-    bool ok = g_pipeline->init(config);
-
-    if (!ok) {
+    auto pipeline = builder.build();
+    if (!pipeline) {
         LOGE("Pipeline initialization FAILED");
-        delete g_pipeline;
-        g_pipeline = nullptr;
         return JNI_FALSE;
     }
 
+    g_pipeline = pipeline.release();
     LOGI("Pipeline initialized from JNI");
     return JNI_TRUE;
 }

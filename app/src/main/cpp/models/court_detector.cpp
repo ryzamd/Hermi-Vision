@@ -36,7 +36,8 @@ bool CourtDetector::loadModel(const std::string& modelPath, DelegateType delegat
     }
 
     // 3. Create interpreter with delegate auto-fallback
-    TfLiteInterpreter* interp = delegateManager_.createInterpreter(model_, cacheDir, delegate, numThreads);
+    delegateManager_ = std::make_unique<DelegateManager>();
+    TfLiteInterpreter* interp = delegateManager_->createInterpreter(model_, cacheDir, delegate, numThreads);
     if (!interp) {
         LOGE("Failed to create interpreter for court model: %s", modelPath.c_str());
         TfLiteModelDelete(model_);
@@ -63,7 +64,7 @@ bool CourtDetector::loadModel(const std::string& modelPath, DelegateType delegat
     floatMat_   = cv::Mat(INPUT_SIZE, INPUT_SIZE, CV_32FC3);
 
     LOGI("Court model loaded: %s on %s", modelPath.c_str(),
-         delegateManager_.getActiveDelegateName().c_str());
+         delegateManager_->getActiveDelegateName().c_str());
     LOGI("  Input:  [1, %d, %d, 3] float32",
          TfLiteTensorDim(inputTensor, 1), TfLiteTensorDim(inputTensor, 2));
     LOGI("  Output: [1, %d] float32", outputSize);
@@ -72,7 +73,7 @@ bool CourtDetector::loadModel(const std::string& modelPath, DelegateType delegat
 }
 
 void CourtDetector::release() {
-    delegateManager_.release();   // Releases interpreter + delegate
+    if (delegateManager_) delegateManager_->release();   // Releases interpreter + delegate
 
     if (model_) {
         TfLiteModelDelete(model_);
@@ -86,7 +87,7 @@ void CourtDetector::release() {
 }
 
 std::string CourtDetector::getActiveDelegate() const {
-    return delegateManager_.getActiveDelegateName();
+    return delegateManager_ ? delegateManager_->getActiveDelegateName() : "none";
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -94,7 +95,7 @@ std::string CourtDetector::getActiveDelegate() const {
 // ════════════════════════════════════════════════════════════════════════════
 
 void CourtDetector::process(FrameContext& ctx, FramePool& pool) {
-    TfLiteInterpreter* interp = delegateManager_.getInterpreter();
+    TfLiteInterpreter* interp = delegateManager_ ? delegateManager_->getInterpreter() : nullptr;
     if (!interp) {
         ctx.courtKeypoints.valid = false;
         return;
@@ -172,7 +173,7 @@ void CourtDetector::preprocess(const cv::Mat& rgbFrame, int origW, int origH) {
     }
 
     // 3. Copy to TFLite input tensor (NHWC layout matches)
-    TfLiteInterpreter* interp = delegateManager_.getInterpreter();
+    TfLiteInterpreter* interp = delegateManager_->getInterpreter();
     TfLiteTensor* inputTensor = TfLiteInterpreterGetInputTensor(interp, 0);
 
     TfLiteTensorCopyFromBuffer(
@@ -187,7 +188,7 @@ void CourtDetector::preprocess(const cv::Mat& rgbFrame, int origW, int origH) {
 // ════════════════════════════════════════════════════════════════════════════
 
 void CourtDetector::postprocess(FrameContext& ctx) {
-    TfLiteInterpreter* interp = delegateManager_.getInterpreter();
+    TfLiteInterpreter* interp = delegateManager_->getInterpreter();
     const TfLiteTensor* outputTensor = TfLiteInterpreterGetOutputTensor(interp, 0);
 
     // Output layout: [1, 28] — 14 keypoints × 2 (x, y), normalized [0,1] via sigmoid

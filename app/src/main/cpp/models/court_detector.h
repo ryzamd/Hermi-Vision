@@ -1,9 +1,11 @@
 #pragma once
 
-#include "../engine/i_ai_model.h"
+#include "../engine/interfaces/i_ai_model.h"
+#include "../engine/interfaces/i_delegate_manager.h"
 #include "../engine/frame_pool.h"
 #include "../engine/delegate_manager.h"
 #include "tensorflow/lite/c/c_api.h"
+#include <memory>
 #include <opencv2/core.hpp>
 
 namespace hermivision {
@@ -51,7 +53,7 @@ public:
 private:
     // TFLite (C API)
     TfLiteModel* model_ = nullptr;
-    DelegateManager delegateManager_;
+    std::unique_ptr<IDelegateManager> delegateManager_;
 
     // ── Pre-allocated buffers (created once in loadModel, reused every frame) ──
     cv::Mat resizedMat_;     // 480×480 (uint8)
