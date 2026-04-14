@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.hermitech.hermivision.shared.AppEnvironment
 import com.hermitech.hermivision.ui.optimizing.OptimizingScreen
 import com.hermitech.hermivision.ui.optimizing.OptimizingViewModel
 import com.hermitech.hermivision.ui.picker.VideoPickerScreen
@@ -28,6 +29,7 @@ import com.hermitech.hermivision.worker.VideoProcessingWorker
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        title = AppEnvironment.displayName()
         enableEdgeToEdge()
         setContent {
             HermivisionTheme {

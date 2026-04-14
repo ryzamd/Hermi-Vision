@@ -15,7 +15,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hermitech.hermivision.data.model.BallFrame
+import com.hermitech.hermivision.shared.domain.model.BallFrame
+import com.hermitech.hermivision.shared.domain.usecase.CalculateProcessingSummaryUseCase
 
 private val DarkBg = Color(0xFF0F0F23)
 private val CardBg = Color(0xFF1A1A2E)
@@ -34,8 +35,13 @@ fun ResultsScreen(
     totalDurationMs: Long = 0L,
     onBackClick: () -> Unit = {}
 ) {
-    val detectionRate = if (totalFrames > 0) (visibleFrames * 100f / totalFrames) else 0f
-    val fps = if (inferenceTimeMs > 0) (totalFrames * 1000f / inferenceTimeMs) else 0f
+    val summary = remember(ballFrames, totalFrames, visibleFrames, inferenceTimeMs, totalDurationMs) {
+        CalculateProcessingSummaryUseCase()(
+            ballFrames = if (ballFrames.size == totalFrames) ballFrames else ballFrames.take(totalFrames),
+            inferenceTimeMs = inferenceTimeMs,
+            totalDurationMs = totalDurationMs,
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -118,13 +124,13 @@ fun ResultsScreen(
                 ) {
                     StatCard(
                         label = "Detection Rate",
-                        value = "%.1f%%".format(detectionRate),
-                        valueColor = if (detectionRate > 70) GreenColor else AccentColor,
+                        value = "%.1f%%".format(summary.detectionRate),
+                        valueColor = if (summary.detectionRate > 70) GreenColor else AccentColor,
                         modifier = Modifier.weight(1f)
                     )
                     StatCard(
                         label = "Inference FPS",
-                        value = "%.1f".format(fps),
+                        value = "%.1f".format(summary.inferenceFps),
                         modifier = Modifier.weight(1f)
                     )
                 }

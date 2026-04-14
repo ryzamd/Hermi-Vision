@@ -6,8 +6,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.hermitech.hermivision.data.AppDatabase
+import com.hermitech.hermivision.data.RoomDeviceConfigRepository
 import com.hermitech.hermivision.domain.inference.NativePipeline
-import com.hermitech.hermivision.data.model.BallFrame
+import com.hermitech.hermivision.shared.domain.model.BallFrame
+import com.hermitech.hermivision.shared.domain.usecase.CalculateProcessingSummaryUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -80,10 +82,9 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
 
         try {
             // --- Load AIConfig from Room DB (benchmark was done on first launch) ---
-            val db = AppDatabase.getInstance(applicationContext)
-            val configEntity = db.deviceConfigDao().getConfig()
+            val configRepository = RoomDeviceConfigRepository(AppDatabase.getInstance(applicationContext))
+            val config = configRepository.getConfig()
                 ?: return Result.failure(workDataOf("error" to "Device not optimized. Please restart the app."))
-            val config = configEntity.toAIConfig()
             Log.i(TAG, "AI Config: ${config.deviceSummary}")
 
             // --- Stage 1: Decode video metadata ---
@@ -202,17 +203,19 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
             val inferenceTimeMs = System.currentTimeMillis() - inferStartTime
 
             // Compute stats
-            val visibleFrames = ballFrames.count { it.isVisible }
+            val processingSummary = CalculateProcessingSummaryUseCase()(
+                ballFrames = ballFrames,
+                inferenceTimeMs = inferenceTimeMs,
+            )
 
             ResultHolder.ballFrames = ballFrames
-            ResultHolder.totalFrames = ballFrames.size
-            ResultHolder.visibleFrames = visibleFrames
+            ResultHolder.totalFrames = processingSummary.totalFrames
+            ResultHolder.visibleFrames = processingSummary.visibleFrames
             ResultHolder.inferenceTimeMs = inferenceTimeMs
 
-            Log.i(TAG, "Ball tracking done: $visibleFrames/${ballFrames.size} visible, ${inferenceTimeMs}ms")
+            Log.i(TAG, "Ball tracking done: ${processingSummary.visibleFrames}/${processingSummary.totalFrames} visible, ${inferenceTimeMs}ms")
             Log.i(TAG, "  Delegate used: ${pipeline.getActiveDelegate()}")
-            val fps = if (inferenceTimeMs > 0) ballFrames.size * 1000.0 / inferenceTimeMs else 0.0
-            Log.i(TAG, "  Effective FPS: ${"%.1f".format(fps)} (${ballFrames.size} frames / ${inferenceTimeMs}ms)")
+            Log.i(TAG, "  Effective FPS: ${"%.1f".format(processingSummary.inferenceFps)} (${processingSummary.totalFrames} frames / ${inferenceTimeMs}ms)")
             reportProgress(STAGE_BALL_TRACKING, 100)
 
             // --- Done ---
@@ -224,8 +227,8 @@ class VideoProcessingWorker(context: Context, params: WorkerParameters) : Corout
 
             return Result.success(
                 workDataOf(
-                    KEY_TOTAL_FRAMES to ballFrames.size,
-                    KEY_VISIBLE_FRAMES to visibleFrames,
+                    KEY_TOTAL_FRAMES to processingSummary.totalFrames,
+                    KEY_VISIBLE_FRAMES to processingSummary.visibleFrames,
                     KEY_DURATION_MS to durationMs
                 )
             )

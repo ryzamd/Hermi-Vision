@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hermitech.hermivision.shared.presentation.processing.ProcessingUiState
 
 private val AccentOrange = Color(0xFFFF6B35)
 private val AccentGreen = Color(0xFF4CAF50)

@@ -7,6 +7,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.*
 import com.hermitech.hermivision.worker.VideoProcessingWorker
+import com.hermitech.hermivision.shared.presentation.processing.ProcessingStateHolder
+import com.hermitech.hermivision.shared.presentation.processing.ProcessingUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,18 +17,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-data class ProcessingUiState(
-    val isProcessing: Boolean = false,
-    val isComplete: Boolean = false,
-    val stage: String = "",
-    val progressPercent: Int = 0,
-    val currentFrame: Int = -1,
-    val totalFrames: Int = 0,
-    val visibleFrames: Int = 0,
-    val durationMs: Long = 0L,
-    val error: String? = null
-)
-
 class ProcessingViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
@@ -34,23 +24,26 @@ class ProcessingViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private val workManager = WorkManager.getInstance(application)
+    private val stateHolder = ProcessingStateHolder()
     private val _uiState = MutableStateFlow(ProcessingUiState())
     val uiState: StateFlow<ProcessingUiState> = _uiState.asStateFlow()
     private var currentWorkId: java.util.UUID? = null
 
     fun processVideo(videoUri: Uri) {
-        // Reset state
-        _uiState.value = ProcessingUiState(isProcessing = true, stage = "Copying video...")
+        stateHolder.onCopyStarted()
+        _uiState.value = stateHolder.state
 
         viewModelScope.launch {
             try {
                 val localPath = copyVideoToCache(videoUri)
                 if (localPath == null) {
-                    _uiState.value = ProcessingUiState(error = "Failed to copy video file")
+                    stateHolder.onCopyFailed()
+                    _uiState.value = stateHolder.state
                     return@launch
                 }
 
-                _uiState.value = ProcessingUiState(isProcessing = true, stage = "Starting...")
+                stateHolder.onProcessingQueued()
+                _uiState.value = stateHolder.state
 
                 val inputData = Data.Builder()
                     .putString(VideoProcessingWorker.KEY_VIDEO_URI, localPath)
@@ -66,7 +59,8 @@ class ProcessingViewModel(application: Application) : AndroidViewModel(applicati
                 observeWork(workRequest.id)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start processing", e)
-                _uiState.value = ProcessingUiState(error = "Failed to start: ${e.message}")
+                stateHolder.onFailed("Failed to start: ${e.message}")
+                _uiState.value = stateHolder.state
             }
         }
     }
@@ -105,38 +99,30 @@ class ProcessingViewModel(application: Application) : AndroidViewModel(applicati
                 when (workInfo.state) {
                     WorkInfo.State.RUNNING -> {
                         val progress = workInfo.progress
-                        _uiState.value = ProcessingUiState(
-                            isProcessing = true,
+                        stateHolder.onProgress(
                             stage = progress.getString(VideoProcessingWorker.KEY_STAGE) ?: "Processing...",
                             progressPercent = progress.getInt(VideoProcessingWorker.KEY_PROGRESS, 0),
-                            currentFrame = progress.getInt(VideoProcessingWorker.KEY_CURRENT_FRAME, -1)
+                            currentFrame = progress.getInt(VideoProcessingWorker.KEY_CURRENT_FRAME, -1),
                         )
+                        _uiState.value = stateHolder.state
                     }
                     WorkInfo.State.SUCCEEDED -> {
                         val output = workInfo.outputData
-                        _uiState.value = ProcessingUiState(
-                            isProcessing = false,
-                            isComplete = true,
-                            stage = "Complete",
-                            progressPercent = 100,
+                        stateHolder.onCompleted(
                             totalFrames = output.getInt(VideoProcessingWorker.KEY_TOTAL_FRAMES, 0),
                             visibleFrames = output.getInt(VideoProcessingWorker.KEY_VISIBLE_FRAMES, 0),
-                            durationMs = output.getLong(VideoProcessingWorker.KEY_DURATION_MS, 0L)
+                            durationMs = output.getLong(VideoProcessingWorker.KEY_DURATION_MS, 0L),
                         )
+                        _uiState.value = stateHolder.state
                     }
                     WorkInfo.State.FAILED -> {
                         val error = workInfo.outputData.getString("error") ?: "Unknown error"
-                        _uiState.value = ProcessingUiState(
-                            isProcessing = false,
-                            isComplete = false,
-                            error = error
-                        )
+                        stateHolder.onFailed(error)
+                        _uiState.value = stateHolder.state
                     }
                     WorkInfo.State.CANCELLED -> {
-                        _uiState.value = ProcessingUiState(
-                            isProcessing = false,
-                            error = "Processing cancelled"
-                        )
+                        stateHolder.onCancelled()
+                        _uiState.value = stateHolder.state
                     }
                     else -> { /* ENQUEUED, BLOCKED */ }
                 }

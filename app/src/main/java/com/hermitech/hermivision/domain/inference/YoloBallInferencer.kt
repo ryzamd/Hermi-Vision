@@ -1,7 +1,11 @@
 package com.hermitech.hermivision.domain.inference
 
 import android.util.Log
-import com.hermitech.hermivision.data.model.BallFrame
+import com.hermitech.hermivision.shared.domain.model.AIConfig
+import com.hermitech.hermivision.shared.domain.model.BallFrame
+import com.hermitech.hermivision.shared.domain.model.DelegateType
+import com.hermitech.hermivision.shared.domain.model.YoloLetterbox
+import com.hermitech.hermivision.shared.domain.usecase.ParseYoloBallFrameUseCase
 import kotlinx.coroutines.channels.ReceiveChannel
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -35,11 +39,8 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
         // TODO: Switch model variant per device tier in the future
         private const val DEFAULT_MODEL = "YoloBall-nano-FP32.tflite"
         private const val INPUT_SIZE = 640
-        private const val CONF_THRESHOLD = 0.25f
-        private const val IOU_THRESHOLD = 0.45f
         private const val NUM_ANCHORS = 8400    // 80×80 + 40×40 + 20×20
         private const val NUM_VALUES = 5        // x_center, y_center, w, h, score (1 class)
-        private const val MAX_NMS_CANDIDATES = 100
     }
 
     private var interpreter: Interpreter? = null
@@ -64,6 +65,7 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
     private var letterboxScale = 1.0f
     private var letterboxPadX = 0
     private var letterboxPadY = 0
+    private val parseYoloBallFrame = ParseYoloBallFrameUseCase(numAnchors = NUM_ANCHORS)
 
     /**
      * Load the YOLO model with optimal configuration from DeviceProfiler.
@@ -121,7 +123,7 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
         interp.run(inputBuffer, outputArray)
 
         // 3. Post-process: confidence filter → NMS → best detection
-        return parseOutput(frameId, origWidth, origHeight)
+        return parseOutput(frameId)
     }
 
     /**
@@ -194,127 +196,13 @@ class YoloBallInferencer(private val sessionManager: TFLiteSessionManager) {
      *   3. Pick highest confidence detection
      *   4. Undo letterbox to get original frame coordinates
      */
-    private fun parseOutput(frameId: Int, origWidth: Int, origHeight: Int): BallFrame {
-        val data = outputArray[0]  // [5][8400]
-
-        // Step 1: Collect candidates above confidence threshold
-        val candidates = ArrayList<Detection>(MAX_NMS_CANDIDATES)
-
-        for (i in 0 until NUM_ANCHORS) {
-            val score = data[4][i]
-            if (score > CONF_THRESHOLD) {
-                candidates.add(
-                    Detection(
-                        cx = data[0][i],
-                        cy = data[1][i],
-                        w = data[2][i],
-                        h = data[3][i],
-                        score = score
-                    )
-                )
-            }
-        }
-
-        if (candidates.isEmpty()) {
-            return BallFrame(frameId, isVisible = false, x = null, y = null)
-        }
-
-        // Step 2: Sort by confidence descending
-        candidates.sortByDescending { it.score }
-
-        // Step 3: Apply NMS
-        val kept = nms(candidates)
-
-        if (kept.isEmpty()) {
-            return BallFrame(frameId, isVisible = false, x = null, y = null)
-        }
-
-        // Step 4: Use best detection (highest confidence after NMS)
-        val best = kept[0]
-
-        // Undo letterbox: convert from 640×640 letterbox pixel space → original frame coordinates
-        val rawX = best.cx - letterboxPadX
-        val rawY = best.cy - letterboxPadY
-        val x = rawX / letterboxScale
-        val y = rawY / letterboxScale
-
-        return BallFrame(frameId, isVisible = true, x = x, y = y)
-    }
-
-    /**
-     * Non-Maximum Suppression (NMS).
-     * Removes overlapping detections with IoU > threshold,
-     * keeping only the highest confidence detection in each cluster.
-     *
-     * @param candidates sorted by confidence descending
-     * @return list of non-overlapping detections
-     */
-    private fun nms(candidates: List<Detection>): List<Detection> {
-        val kept = ArrayList<Detection>()
-        val suppressed = BooleanArray(candidates.size)
-
-        for (i in candidates.indices) {
-            if (suppressed[i]) continue
-
-            val a = candidates[i]
-            kept.add(a)
-
-            // Suppress all lower-confidence boxes that overlap with this one
-            for (j in i + 1 until candidates.size) {
-                if (suppressed[j]) continue
-
-                if (computeIoU(a, candidates[j]) > IOU_THRESHOLD) {
-                    suppressed[j] = true
-                }
-            }
-        }
-
-        return kept
-    }
-
-    /**
-     * Compute Intersection over Union (IoU) between two detections.
-     * Converts from center format (cx, cy, w, h) to corner format for overlap calculation.
-     */
-    private fun computeIoU(a: Detection, b: Detection): Float {
-        // Convert to x1, y1, x2, y2
-        val ax1 = a.cx - a.w / 2f
-        val ay1 = a.cy - a.h / 2f
-        val ax2 = a.cx + a.w / 2f
-        val ay2 = a.cy + a.h / 2f
-
-        val bx1 = b.cx - b.w / 2f
-        val by1 = b.cy - b.h / 2f
-        val bx2 = b.cx + b.w / 2f
-        val by2 = b.cy + b.h / 2f
-
-        // Intersection
-        val ix1 = maxOf(ax1, bx1)
-        val iy1 = maxOf(ay1, by1)
-        val ix2 = minOf(ax2, bx2)
-        val iy2 = minOf(ay2, by2)
-
-        val interW = maxOf(0f, ix2 - ix1)
-        val interH = maxOf(0f, iy2 - iy1)
-        val interArea = interW * interH
-
-        // Union
-        val aArea = a.w * a.h
-        val bArea = b.w * b.h
-        val unionArea = aArea + bArea - interArea
-
-        return if (unionArea > 0f) interArea / unionArea else 0f
-    }
-
-    /**
-     * Internal detection data class for NMS processing.
-     * Coordinates are in letterbox pixel space (0..640).
-     */
-    private data class Detection(
-        val cx: Float,    // center x
-        val cy: Float,    // center y
-        val w: Float,     // width
-        val h: Float,     // height
-        val score: Float  // confidence
+    private fun parseOutput(frameId: Int): BallFrame = parseYoloBallFrame(
+        frameId = frameId,
+        output = outputArray[0],
+        letterbox = YoloLetterbox(
+            scale = letterboxScale,
+            padX = letterboxPadX,
+            padY = letterboxPadY,
+        ),
     )
 }

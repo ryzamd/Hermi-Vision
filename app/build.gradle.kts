@@ -7,14 +7,15 @@ plugins {
 
 android {
     namespace = "com.hermitech.hermivision"
-    compileSdk = 36
+    compileSdk = 35
+    buildToolsVersion = "36.0.0"
 
-    ndkVersion = "26.1.10909125"
+    ndkVersion = "21.4.7075529"
 
     defaultConfig {
         applicationId = "com.hermitech.hermivision"
         minSdk = 30
-        this.targetSdk = 35
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -71,6 +72,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":shared"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

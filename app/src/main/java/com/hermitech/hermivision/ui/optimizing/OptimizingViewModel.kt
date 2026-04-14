@@ -5,8 +5,11 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermitech.hermivision.data.AppDatabase
-import com.hermitech.hermivision.data.model.DeviceConfigEntity
+import com.hermitech.hermivision.data.RoomDeviceConfigRepository
 import com.hermitech.hermivision.domain.inference.DeviceProfiler
+import com.hermitech.hermivision.shared.domain.usecase.BuildBenchmarkResultsTextUseCase
+import com.hermitech.hermivision.shared.presentation.optimizing.OptimizingStateHolder
+import com.hermitech.hermivision.shared.presentation.optimizing.OptimizingUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,23 +17,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class OptimizingUiState(
-    val isRunning: Boolean = false,
-    val isDone: Boolean = false,
-    val progress: Int = 0,
-    val stage: String = "Preparing...",
-    val deviceSummary: String = "",
-    val benchmarkResults: String = "",
-    val error: String? = null
-)
-
 class OptimizingViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "OptimizingViewModel"
     }
 
-    private val db = AppDatabase.getInstance(application)
+    private val configRepository = RoomDeviceConfigRepository(AppDatabase.getInstance(application))
+    private val buildBenchmarkResultsText = BuildBenchmarkResultsTextUseCase()
+    private val stateHolder = OptimizingStateHolder()
     private val _uiState = MutableStateFlow(OptimizingUiState())
     val uiState: StateFlow<OptimizingUiState> = _uiState.asStateFlow()
 
@@ -39,7 +34,7 @@ class OptimizingViewModel(application: Application) : AndroidViewModel(applicati
      * Returns true if optimizing can be skipped.
      */
     suspend fun hasExistingConfig(): Boolean = withContext(Dispatchers.IO) {
-        db.deviceConfigDao().getConfig() != null
+        configRepository.getConfig() != null
     }
 
     /**
@@ -47,9 +42,8 @@ class OptimizingViewModel(application: Application) : AndroidViewModel(applicati
      * Should only be called once (first launch).
      */
     fun startBenchmark() {
-        if (_uiState.value.isRunning) return
-
-        _uiState.value = OptimizingUiState(isRunning = true, stage = "Analyzing hardware...")
+        stateHolder.startBenchmark()
+        _uiState.value = stateHolder.state
 
         viewModelScope.launch {
             try {
@@ -57,54 +51,30 @@ class OptimizingViewModel(application: Application) : AndroidViewModel(applicati
 
                 val config = withContext(Dispatchers.IO) {
                     profiler.runBenchmark { progress ->
-                        _uiState.value = _uiState.value.copy(
-                            progress = progress,
-                            stage = when {
-                                progress < 10 -> "Analyzing hardware..."
-                                progress < 35 -> "Testing NPU (NNAPI)..."
-                                progress < 65 -> "Testing GPU..."
-                                progress < 85 -> "Testing CPU..."
-                                else -> "Finalizing..."
-                            }
-                        )
+                        stateHolder.onBenchmarkProgress(progress)
+                        _uiState.value = stateHolder.state
                     }
                 }
 
                 // Save to Room DB
                 withContext(Dispatchers.IO) {
-                    db.deviceConfigDao().insertConfig(
-                        DeviceConfigEntity.fromAIConfig(config)
-                    )
+                    configRepository.saveConfig(config)
                 }
 
                 Log.i(TAG, "Benchmark complete, saved to DB: ${config.deviceSummary}")
 
-                _uiState.value = OptimizingUiState(
-                    isRunning = false,
-                    isDone = true,
-                    progress = 100,
-                    stage = "Optimization complete!",
+                stateHolder.onBenchmarkCompleted(
                     deviceSummary = config.deviceSummary,
-                    benchmarkResults = buildResultsText(config)
+                    benchmarkResults = buildBenchmarkResultsText(config),
                 )
+                _uiState.value = stateHolder.state
 
             } catch (e: Exception) {
                 Log.e(TAG, "Benchmark failed", e)
-                _uiState.value = OptimizingUiState(
-                    isRunning = false,
-                    error = "Optimization failed: ${e.message}"
-                )
+                stateHolder.onBenchmarkFailed(e.message)
+                _uiState.value = stateHolder.state
             }
         }
     }
 
-    private fun buildResultsText(config: com.hermitech.hermivision.domain.inference.AIConfig): String {
-        val lines = mutableListOf<String>()
-        lines.add("Device: ${config.deviceSummary}")
-        lines.add("Best: ${config.tfliteDelegate.name}")
-        if (config.nnapiAvgMs > 0) lines.add("NPU: ${config.nnapiAvgMs}ms/frame")
-        if (config.gpuAvgMs > 0) lines.add("GPU: ${config.gpuAvgMs}ms/frame")
-        if (config.cpuAvgMs > 0) lines.add("CPU: ${config.cpuAvgMs}ms/frame")
-        return lines.joinToString("\n")
-    }
 }

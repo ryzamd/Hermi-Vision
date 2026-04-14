@@ -1,0 +1,60 @@
+name: iosApp
+options:
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  YOLO:
+    path: /Volumes/T9/Projects/yolo-ios-app
+configs:
+  Debug: debug
+  Release: release
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+      - path: Configuration
+      - path: Resources
+        excludes:
+          - Models/best.mlpackage
+          - Models/._best.mlpackage
+      - path: Resources/Models
+        includes:
+          - best.mlpackage
+        group: Resources/Models
+        buildPhase: sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.globalblue.icph20.qa
+        PRODUCT_NAME: HermiVision
+        SWIFT_VERSION: 5.9
+        INFOPLIST_FILE: Configuration/Info.plist
+        DEVELOPMENT_TEAM: TSN2PCF43X
+        CODE_SIGN_STYLE: Automatic
+        OTHER_CODE_SIGN_FLAGS: --deep
+        ENABLE_DEBUG_DYLIB: NO
+    info:
+      path: Configuration/Info.plist
+      properties:
+        NSCameraUsageDescription: HermiVision uses the camera to run realtime ball detection on live video.
+        UILaunchStoryboardName: LaunchScreen
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+    dependencies:
+      - framework: /var/folders/6y/rdf4rfbn78z6q9tb6s7kpym40000gn/T/hermivision-gradle/shared/bin/iosArm64/debugFramework/shared.framework
+        embed: false
+        codeSign: false
+      - package: YOLO
+        product: YOLO
+schemes:
+  iosApp:
+    build:
+      targets:
+        iosApp: all
+    run:
+      config: Debug
+    archive:
+      config: Release

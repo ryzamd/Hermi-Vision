@@ -3,6 +3,9 @@ package com.hermitech.hermivision.domain.inference
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.hermitech.hermivision.shared.domain.model.AIConfig
+import com.hermitech.hermivision.shared.domain.model.DelegateType
+import com.hermitech.hermivision.shared.domain.model.DeviceTier
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.nnapi.NnApiDelegate
