@@ -22,8 +22,9 @@ import com.hermitech.hermivision.ui.picker.VideoPickerScreen
 import com.hermitech.hermivision.ui.processing.ProcessingScreen
 import com.hermitech.hermivision.ui.processing.ProcessingViewModel
 import com.hermitech.hermivision.ui.results.ResultsScreen
+import com.hermitech.hermivision.ui.results.ResultsViewModel
+import com.hermitech.hermivision.ui.live.LiveAnalysisScreen
 import com.hermitech.hermivision.ui.theme.HermivisionTheme
-import com.hermitech.hermivision.worker.VideoProcessingWorker
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +43,7 @@ private object Routes {
     const val PICKER = "picker"
     const val PROCESSING = "processing"
     const val RESULTS = "results"
+    const val LIVE = "live"
 }
 
 @Composable
@@ -92,6 +94,11 @@ fun HermivisionApp() {
                     navController.navigate(Routes.PROCESSING) {
                         launchSingleTop = true
                     }
+                },
+                onLiveAnalysis = {
+                    navController.navigate(Routes.LIVE) {
+                        launchSingleTop = true
+                    }
                 }
             )
         }
@@ -118,16 +125,26 @@ fun HermivisionApp() {
         }
 
         composable(Routes.RESULTS) {
-            val holder = VideoProcessingWorker.ResultHolder
+            val resultsViewModel: ResultsViewModel = viewModel()
+            val uiState by resultsViewModel.uiState.collectAsState()
 
             ResultsScreen(
-                ballFrames = holder.ballFrames,
-                totalFrames = holder.totalFrames,
-                visibleFrames = holder.visibleFrames,
-                inferenceTimeMs = holder.inferenceTimeMs,
-                totalDurationMs = holder.durationMs,
+                ballFrames = uiState.ballFrames,
+                totalFrames = uiState.totalFrames,
+                visibleFrames = uiState.visibleFrames,
+                inferenceTimeMs = uiState.inferenceTimeMs,
+                totalDurationMs = uiState.durationMs,
+                courtResult = uiState.courtResult,
                 onBackClick = {
-                    VideoProcessingWorker.ResultHolder.clear()
+                    resultsViewModel.clearResults()
+                    navController.popBackStack(Routes.PICKER, inclusive = false)
+                }
+            )
+        }
+
+        composable(Routes.LIVE) {
+            LiveAnalysisScreen(
+                onBackClick = {
                     navController.popBackStack(Routes.PICKER, inclusive = false)
                 }
             )

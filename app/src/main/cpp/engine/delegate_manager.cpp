@@ -224,4 +224,4 @@ void DelegateManager::release() {
     activeDelegateName_ = "none";
 }
 
-} // namespace hermivision
+}

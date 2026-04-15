@@ -1,8 +1,11 @@
 #pragma once
 
-#include "../engine/i_ai_model.h"
+#include "../engine/interfaces/i_ai_model.h"
+#include "../engine/interfaces/i_delegate_manager.h"
+#include "../engine/frame_pool.h"
 #include "../engine/delegate_manager.h"
 #include "tensorflow/lite/c/c_api.h"
+#include <memory>
 #include <opencv2/core.hpp>
 
 namespace hermivision {
@@ -38,14 +41,14 @@ public:
     ~YoloBallDetector() override { release(); }
 
     bool loadModel(const std::string& modelPath, DelegateType delegate, int numThreads) override;
-    void process(FrameContext& ctx) override;
+    void process(FrameContext& ctx, FramePool& pool) override;
     void release() override;
     std::string getActiveDelegate() const override;
 
 private:
     // TFLite (C API)
     TfLiteModel* model_ = nullptr;
-    DelegateManager delegateManager_;
+    std::unique_ptr<IDelegateManager> delegateManager_;
 
     // ── Pre-allocated buffers (created once in loadModel, reused every frame) ──
     cv::Mat resizedMat_;     // 640×640 letterboxed frame (uint8)
@@ -63,7 +66,7 @@ private:
     bool paddingCleared_ = false;
 
     // ── Pre-processing ──
-    void preprocess(const cv::Mat& rgbFrame);
+    void preprocess(const cv::Mat& rgbFrame, int origW, int origH);
 
     // ── Post-processing ──
     void postprocess(FrameContext& ctx);
@@ -74,4 +77,4 @@ private:
                     std::vector<Detection>& kept);
 };
 
-} // namespace hermivision
+}

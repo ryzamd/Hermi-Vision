@@ -5,8 +5,8 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermitech.hermivision.data.AppDatabase
-import com.hermitech.hermivision.data.model.DeviceConfigEntity
-import com.hermitech.hermivision.domain.inference.DeviceProfiler
+import com.hermitech.hermivision.data.local.DeviceConfigEntity
+import com.hermitech.hermivision.data.inference.DeviceProfiler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

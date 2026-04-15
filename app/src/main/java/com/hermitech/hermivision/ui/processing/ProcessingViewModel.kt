@@ -6,7 +6,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.*
-import com.hermitech.hermivision.worker.VideoProcessingWorker
+import com.hermitech.hermivision.data.worker.VideoProcessingWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

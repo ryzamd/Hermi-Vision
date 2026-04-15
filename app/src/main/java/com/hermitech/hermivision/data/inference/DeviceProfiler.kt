@@ -1,4 +1,9 @@
-package com.hermitech.hermivision.domain.inference
+package com.hermitech.hermivision.data.inference
+
+import com.hermitech.hermivision.domain.inference.INativePipeline
+import com.hermitech.hermivision.domain.inference.AIConfig
+import com.hermitech.hermivision.domain.inference.DeviceTier
+import com.hermitech.hermivision.domain.inference.DelegateType
 
 import android.content.Context
 import android.os.Build
@@ -121,12 +126,7 @@ class DeviceProfiler(private val context: Context) {
      *
      * @return Average ms per inference frame, or -1 if delegate is unavailable
      */
-    private fun benchmarkDelegate(
-        type: DelegateType,
-        modelBuffer: MappedByteBuffer,
-        dummyInput: ByteBuffer,
-        dummyOutput: Array<Array<FloatArray>>
-    ): Long {
+    private fun benchmarkDelegate(type: DelegateType, modelBuffer: MappedByteBuffer, dummyInput: ByteBuffer, dummyOutput: Array<Array<FloatArray>>): Long {
         var delegate: Any? = null
         var interpreter: Interpreter? = null
 
