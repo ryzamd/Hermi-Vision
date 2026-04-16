@@ -4,6 +4,8 @@ plugins {
 }
 
 kotlin {
+    jvmToolchain(11)
+    
     androidTarget()
 
     listOf(
@@ -43,3 +45,5 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 }
+
+layout.buildDirectory.set(file("build"))

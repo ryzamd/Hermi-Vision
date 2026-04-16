@@ -15,7 +15,7 @@ android {
     defaultConfig {
         applicationId = "com.hermitech.hermivision"
         minSdk = 30
-        targetSdk = 34
+        this.targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -106,3 +106,5 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
 }
+
+layout.buildDirectory.set(file("build"))
